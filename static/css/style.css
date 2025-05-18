@@ -1,0 +1,395 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: monospace;
+    background-color: #ffffff;
+    color: #333333;
+    overflow: hidden;
+    height: 100vh;
+}
+
+.container {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+}
+
+#animation-container {
+    width: 100%;
+    height: 300px; /* Increased height to accommodate larger characters */
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    overflow: visible; /* Prevent cutting off characters */
+}
+
+.character {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    background-image: url('/static/images/default_walker.gif');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center center;
+    z-index: 10;
+    animation: moveAcross 10s linear forwards;
+}
+
+.thinking-cloud {
+    position: absolute;
+    width: 100px; /* Smaller than character */
+    height: 100px;
+    background-image: url('/static/images/thinking_cloud.gif');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center center;
+    z-index: 11; /* Above character */
+    animation: moveAcross 10s linear forwards; /* Same animation as character */
+    pointer-events: none; /* Allow clicks to pass through */
+}
+
+/* Connection Status Styles */
+#connection-status {
+    padding: 5px 10px;
+    margin-bottom: 15px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+/* Payment Tracker Styles */
+#payment-tracker {
+    margin-top: 20px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border-radius: 8px;
+    padding: 15px;
+    max-height: 300px;
+    overflow-y: auto;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+#payment-tracker h3 {
+    margin-top: 0;
+    font-size: 1.2em;
+    color: #333;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+}
+
+.tracker-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.tracker-label {
+    font-weight: bold;
+    color: #555;
+}
+
+#payment-history {
+    margin-top: 15px;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+}
+
+#payment-history h4 {
+    margin-top: 0;
+    font-size: 1em;
+    margin-bottom: 8px;
+}
+
+#payment-list {
+    max-height: 150px;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+.payment-entry {
+    padding: 5px;
+    border-bottom: 1px solid #eee;
+}
+
+.payment-entry:last-child {
+    border-bottom: none;
+}
+
+.payment-entry.exact-amount {
+    background-color: rgba(50, 205, 50, 0.1);
+    border-left: 3px solid #32CD32;
+}
+
+.payment-time {
+    color: #777;
+    font-size: 0.9em;
+}
+
+#connection-status.connected {
+    background-color: rgba(0, 200, 0, 0.2);
+    color: #008800;
+    border: 1px solid #00aa00;
+}
+
+#connection-status.disconnected {
+    background-color: rgba(255, 0, 0, 0.2);
+    color: #cc0000;
+    border: 1px solid #ff0000;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* QR Code Styles */
+#qr-code-container {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    z-index: 5;
+}
+
+#qr-code {
+    width: 150px;
+    height: 150px;
+    background-color: white;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+#info-panel {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background-color: rgba(240, 240, 240, 0.85);
+    padding: 15px;
+    border-radius: 10px;
+    max-width: 400px;
+    border: 1px solid #dddddd;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    font-size: 18px;
+    margin-bottom: 10px;
+    color: #0066cc;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+#connection-status {
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+#latest-block-info {
+    margin-top: 10px;
+    font-size: 14px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Block info styles */
+.block-header {
+    font-weight: bold;
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.block-basics {
+    color: #555;
+}
+
+.block-time {
+    color: #777;
+    font-size: 12px;
+    margin-bottom: 10px;
+}
+
+/* Transaction details styles */
+.tx-types-header {
+    font-weight: bold;
+    margin-top: 10px;
+    padding-top: 5px;
+    border-top: 1px solid #ddd;
+}
+
+.tx-type {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 10px;
+    font-size: 12px;
+}
+
+.tx-type span {
+    font-weight: bold;
+}
+
+.tx-type:nth-child(odd) {
+    background-color: rgba(240, 240, 240, 0.5);
+}
+
+/* XRP statistics styles */
+.xrp-info {
+    margin-top: 10px;
+    padding: 8px;
+    background-color: rgba(0, 150, 136, 0.1);
+    border-left: 3px solid #009688;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Active accounts styles */
+.accounts-header {
+    font-weight: bold;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid #ddd;
+    font-size: 13px;
+}
+
+.account-item {
+    padding: 3px 5px;
+    margin: 2px 0;
+    background-color: rgba(66, 133, 244, 0.1);
+    border-left: 2px solid #4285F4;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+/* Detailed transactions styles */
+.detailed-tx-header {
+    font-weight: bold;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid #ddd;
+    font-size: 13px;
+}
+
+.detailed-tx-list {
+    max-height: 250px;
+    overflow-y: auto;
+    margin-top: 5px;
+}
+
+.tx-item {
+    padding: 6px 8px;
+    margin: 5px 0;
+    background-color: rgba(240, 240, 240, 0.5);
+    border-left: 3px solid #cccccc;
+    font-size: 12px;
+    border-radius: 2px;
+}
+
+.tx-success {
+    border-left-color: #4CAF50;
+}
+
+.tx-failed {
+    border-left-color: #F44336;
+}
+
+.tx-desc {
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+.tx-addr {
+    color: #666;
+    font-size: 11px;
+}
+
+.tx-hash {
+    color: #999;
+    font-size: 10px;
+    margin-top: 3px;
+    cursor: pointer;
+}
+
+/* GIF Settings Styles */
+.gif-settings {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.gif-settings h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 16px;
+    color: #333;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 10px;
+}
+
+.input-group label {
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.input-group input {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.input-group button {
+    padding: 8px 12px;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.input-group button:hover {
+    background-color: #45a049;
+}
+
+.hint small {
+    font-size: 12px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Super simple GIF animation */
+@keyframes moveAcross {
+    from { left: -100px; }
+    to { left: 100%; }
+}
+
+/* Animation path - removed */
+#animation-path {
+    display: none;
+}

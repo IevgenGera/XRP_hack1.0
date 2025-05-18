@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XRP Ledger Block Visualizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div id="animation-container">
+            <!-- Path for animation reference -->
+            <div id="animation-path"></div>
+            <!-- Characters will be dynamically added here -->
+        </div>
+        <div id="info-panel">
+            <h1>XRP Ledger Block Visualizer</h1>
+            <div id="connection-status">Connecting to XRP Ledger...</div>
+            <div id="latest-block-info"></div>
+            
+            <!-- Payment Tracker for Special Wallet -->
+            <div id="payment-tracker">
+                <h3>Special Wallet Payment Tracker</h3>
+                <div class="tracker-item">
+                    <span class="tracker-label">Last payment:</span>
+                    <span id="last-payment-time">None detected</span>
+                </div>
+                <div class="tracker-item">
+                    <span class="tracker-label">Exact amount (0.00101 XRP):</span>
+                    <span id="exact-payment-count">0</span>
+                </div>
+                <div class="tracker-item">
+                    <span class="tracker-label">Any amount:</span>
+                    <span id="any-payment-count">0</span>
+                </div>
+                <div id="payment-history">
+                    <h4>Recent Payments</h4>
+                    <div id="payment-list"></div>
+                </div>
+            </div>
+            
+            <!-- GIF Settings removed as requested -->
+        </div>
+        
+        <!-- QR Code at the bottom -->
+        <div id="qr-code-container">
+            <img src="{{ url_for('static', filename='images/qrcode.png') }}" alt="QR Code" id="qr-code">
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
