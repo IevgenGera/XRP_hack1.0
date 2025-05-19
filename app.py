@@ -13,8 +13,8 @@ import time
 from collections import defaultdict
 from decimal import Decimal
 
-from flask import Flask, render_template
-from flask_socketio import SocketIO
+from flask import Flask, render_template, copy_current_request_context
+from flask_socketio import SocketIO, emit
 
 from xrpl.clients import WebsocketClient
 from xrpl.models import Subscribe, StreamParameter
@@ -395,12 +395,16 @@ def xrpl_listener():
                         ledger_info["tx_details"] = tx_details
                         
                         try:
-                            # Send to all connected clients with acknowledgment and namespace
-                            socketio.emit('new_block', ledger_info, namespace='/', broadcast=True)
-                            logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
+                            # Thread-safe approach to emit Socket.IO events from background threads
+                            def emit_with_app_context(data, ledger_idx):
+                                with app.app_context():
+                                    # Using engineio's internal async mode to properly handle thread-safe emits
+                                    socketio.emit('new_block', data, namespace='/', broadcast=True)
+                                    logger.debug(f"Emitted ledger #{ledger_idx} data to connected clients via thread-safe method")
                             
-                            # Force Socket.IO to process the message
-                            socketio.sleep(0)
+                            # Use socketio's proper thread handling
+                            socketio.start_background_task(emit_with_app_context, ledger_info, ledger_index)
+                            
                         except Exception as emit_error:
                             logger.error(f"Error emitting event: {emit_error}", exc_info=True)
                 
