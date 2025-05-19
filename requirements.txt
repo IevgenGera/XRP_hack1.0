@@ -2,4 +2,3 @@ flask
 flask-socketio
 xrpl-py
 gunicorn
-eventlet
