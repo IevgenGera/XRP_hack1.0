@@ -67,9 +67,11 @@ body {
     z-index: 12; /* Above character */
     pointer-events: none; /* Allow clicks to pass through */
     white-space: normal;
-    /* Animation is now added in JavaScript for better positioning */
     transform-origin: bottom center;
     word-wrap: break-word;
+    /* Position the bubble from the bottom instead of the top */
+    bottom: 100%; /* Reference point is now the bottom of the bubble */
+    margin-bottom: 20px; /* Space between bubble and character */
 }
 
 /* Speech bubble pointer */

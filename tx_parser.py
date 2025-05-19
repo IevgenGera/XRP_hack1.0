@@ -231,13 +231,15 @@ def parse_transaction(transaction):
     # Create a copy to avoid modifying the original
     tx = transaction.copy()
     
+    # Store hash for tracing purposes
+    tx_hash = tx.get('hash', 'unknown_hash')
+    print(f"[TX_PARSER] PARSING TRANSACTION {tx_hash}")
+
     # Use tx_json if available (sometimes transactions are wrapped)
     if 'tx_json' in tx:
         tx = tx['tx_json']
     
-    # Store hash for tracing purposes
-    tx_hash = tx.get('hash', 'unknown_hash')
-    print(f"[TX_PARSER] PARSING TRANSACTION {tx_hash}")
+    
     
     # DEBUG: Print key transaction properties for memo debugging
     print(f"[TX_PARSER] TRANSACTION KEYS: {list(tx.keys())}")

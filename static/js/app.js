@@ -459,17 +459,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 memoBubble.className = 'memo-bubble';
                 memoBubble.textContent = memoContent;
                 
-                // Position the bubble centered above the walker
-                const walkerTop = parseInt(walker.style.top);
-                const bubbleHeight = 60; // Adjusted for new bigger bubble
-                const bubbleOffset = 40; // Space between bubble and walker
+                // For expandable speech bubbles that grow upward instead of downward
+                // Make the bubble a child of the walker element so it's positioned relative to it
+                walker.appendChild(memoBubble);
                 
-                // Create a fixed position for the bubble that stays with the walker
-                memoBubble.style.position = 'absolute';
-                memoBubble.style.top = (walkerTop - bubbleHeight - bubbleOffset) + 'px';
-                
-                // Position the bubble so its 25% point is aligned with the walker's center
-                // This aligns the speech bubble's pointer with the walker
+                // Position the bubble horizontally
+                // This aligns the speech bubble's pointer with the walker's center
                 memoBubble.style.left = '25%';
                 
                 // Apply a specific offset to ensure walker is under the pointer
@@ -477,18 +472,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const offsetAdjustment = walkerWidth / 4; // Quarter of walker width
                 memoBubble.style.marginLeft = offsetAdjustment + 'px';
                 
-                // Make the bubble track with the walker
-                memoBubble.style.animation = 'moveAcross 10s linear forwards, floatBubble 2s ease-in-out infinite';
+                // Add gentle float animation to the bubble
+                memoBubble.style.animation = 'floatBubble 2s ease-in-out infinite';
                 
-                // Add the memo bubble to the container
-                animationContainer.appendChild(memoBubble);
-                
-                // Remove the bubble along with the walker
-                setTimeout(() => {
-                    if (memoBubble.parentNode) {
-                        memoBubble.parentNode.removeChild(memoBubble);
-                    }
-                }, 12000);
+                // The bubble will be removed automatically when the walker is removed
+                // since it's now a child element of the walker
                 
                 console.log(`Added memo bubble with text: ${memo.memo_data}`);
             }
