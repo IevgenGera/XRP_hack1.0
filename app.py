@@ -68,9 +68,11 @@ socketio = SocketIO(app,
                    cors_allowed_origins="*",
                    logger=True, 
                    engineio_logger=True,
-                   ping_timeout=60,
-                   ping_interval=25)
-logger.info("Flask application initialized")
+                   ping_timeout=120,  # Extended ping timeout
+                   ping_interval=25,
+                   async_mode='eventlet',  # Use eventlet for production
+                   manage_session=False)  # Disable Flask session management for better performance
+logger.info("Flask application initialized with optimized Socket.IO settings")
 
 # Global variables
 client = None
@@ -392,9 +394,15 @@ def xrpl_listener():
                         # Add transaction details to ledger info
                         ledger_info["tx_details"] = tx_details
                         
-                        # Send to all connected clients
-                        socketio.emit('new_block', ledger_info)
-                        logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
+                        try:
+                            # Send to all connected clients with acknowledgment and namespace
+                            socketio.emit('new_block', ledger_info, namespace='/', broadcast=True)
+                            logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
+                            
+                            # Force Socket.IO to process the message
+                            socketio.sleep(0)
+                        except Exception as emit_error:
+                            logger.error(f"Error emitting event: {emit_error}", exc_info=True)
                 
         except Exception as e:
             # Handle WebSocket connection errors

@@ -1,14 +1,25 @@
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM fully loaded');
     
-    // Connect to SocketIO with reconnection options
+    // Connect to SocketIO with enhanced reconnection options
     console.log('Attempting to connect to Socket.IO server at:', window.location.origin);
     const socket = io(window.location.origin, {
+        transports: ['websocket', 'polling'],  // Try WebSocket first, fallback to polling
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        timeout: 20000
+        timeout: 20000,
+        forceNew: true  // Force new connection
+    });
+    
+    // Add more detailed socket event logging
+    socket.io.on("error", (error) => {
+        console.error("Socket.IO error:", error);
+    });
+    
+    socket.io.on("reconnect_attempt", (attempt) => {
+        console.log(`Socket.IO reconnection attempt #${attempt}`);
     });
     
     // Socket connection monitoring
