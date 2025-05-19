@@ -62,20 +62,7 @@ logger.addHandler(file_handler)
 # Initialize Flask
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'
-
-# Detect available async modes
-try:
-    import eventlet
-    async_mode = 'eventlet'
-except ImportError:
-    try:
-        import gevent
-        async_mode = 'gevent'
-    except ImportError:
-        async_mode = None
-
-logger.info(f"Using async mode: {async_mode}")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode=async_mode)
+socketio = SocketIO(app, cors_allowed_origins="*")
 logger.info("Flask application initialized")
 
 # Global variables
