@@ -70,10 +70,6 @@ client = None
 xrpl_thread = None
 running = False
 
-# Start XRPL listener thread when app is initialized
-logger.info("Starting XRPL listener thread")
-start_xrpl_thread()
-
 @app.route('/')
 def index():
     """Render the main page."""
