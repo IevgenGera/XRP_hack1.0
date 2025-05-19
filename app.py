@@ -62,7 +62,7 @@ logger.addHandler(file_handler)
 # Initialize Flask
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 logger.info("Flask application initialized")
 
 # Global variables
