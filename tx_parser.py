@@ -4,9 +4,12 @@ This script analyzes XRP Ledger transactions and extracts useful information.
 """
 
 import json
-import pprint
-from decimal import Decimal
+import time
+import logging
+import re
 from datetime import datetime
+from decimal import Decimal, DecimalException
+from collections import defaultdict
 
 # Transaction type mapping for more readable names
 TX_TYPE_NAMES = {
@@ -168,93 +171,231 @@ def extract_participants(tx):
     
     return participants
 
-def parse_transaction(tx):
-    """Parse a transaction and return structured information."""
-    print(f"[TX_PARSER] Starting to parse transaction")
+def extract_memo(tx):
+    """Extract memo information from a transaction."""
+    memos = []
+    try:
+        # Check if tx has Memos field and process it
+        if "Memos" in tx and isinstance(tx["Memos"], list):
+            for memo_obj in tx["Memos"]:
+                if "Memo" in memo_obj and isinstance(memo_obj["Memo"], dict):
+                    memo_data = memo_obj["Memo"].get("MemoData", "")
+                    memo_type = memo_obj["Memo"].get("MemoType", "")
+                    memo_format = memo_obj["Memo"].get("MemoFormat", "")
+                    
+                    # If MemoData is hex encoded, convert to text
+                    if memo_data and all(c in '0123456789ABCDEFabcdef' for c in memo_data):
+                        try:
+                            # Try to convert from hex to text
+                            memo_data = bytes.fromhex(memo_data).decode('utf-8')
+                        except Exception as e:
+                            print(f"[TX_PARSER] Error decoding memo data: {e}")
+                    
+                    memos.append({
+                        "data": memo_data,
+                        "type": memo_type,
+                        "format": memo_format
+                    })
+        
+        # Also check tx_json if it exists
+        if "tx_json" in tx and isinstance(tx["tx_json"], dict) and "Memos" in tx["tx_json"]:
+            for memo_obj in tx["tx_json"]["Memos"]:
+                if "Memo" in memo_obj and isinstance(memo_obj["Memo"], dict):
+                    memo_data = memo_obj["Memo"].get("MemoData", "")
+                    memo_type = memo_obj["Memo"].get("MemoType", "")
+                    memo_format = memo_obj["Memo"].get("MemoFormat", "")
+                    
+                    # If MemoData is hex encoded, convert to text
+                    if memo_data and all(c in '0123456789ABCDEFabcdef' for c in memo_data):
+                        try:
+                            # Try to convert from hex to text
+                            memo_data = bytes.fromhex(memo_data).decode('utf-8')
+                        except Exception as e:
+                            print(f"[TX_PARSER] Error decoding memo data: {e}")
+                    
+                    memos.append({
+                        "data": memo_data,
+                        "type": memo_type,
+                        "format": memo_format
+                    })
+    except Exception as e:
+        print(f"[TX_PARSER] Error extracting memos: {e}")
     
-    # If tx_json is present, use that as the transaction data
-    if isinstance(tx, dict) and "tx_json" in tx and isinstance(tx["tx_json"], dict):
-        print(f"[TX_PARSER] Found tx_json field, using that as transaction data")
-        tx_data = tx["tx_json"]
-        # Keep a reference to the original tx for meta data
-        orig_tx = tx
-    else:
-        tx_data = tx
-        orig_tx = tx
+    return memos
+
+def parse_transaction(transaction):
+    """Parse a transaction from the XRP ledger."""
+    if not isinstance(transaction, dict):
+        return {}  # Not a valid transaction
     
-    # Debug transaction structure
-    if isinstance(tx_data, dict):
-        # Print a few key fields if they exist
-        hash_value = tx_data.get("hash", tx.get("hash", "N/A"))
-        account = tx_data.get("Account", "N/A")
-        print(f"[TX_PARSER] Transaction hash: {hash_value}, Account: {account}")
-    else:
-        print(f"[TX_PARSER] Transaction is not a dict: {type(tx_data)}")
-        return {"type": "Unknown", "success": False, "result": "Invalid transaction format"}
+    # Create a copy to avoid modifying the original
+    tx = transaction.copy()
     
-    # Get transaction type
-    tx_type = get_transaction_type(tx)  # Use original tx to check all locations
-    print(f"[TX_PARSER] Transaction type determined: {tx_type}")
+    # Use tx_json if available (sometimes transactions are wrapped)
+    if 'tx_json' in tx:
+        tx = tx['tx_json']
     
-    # Get transaction result
-    tx_result = get_transaction_result(tx)  # Use original tx
-    print(f"[TX_PARSER] Transaction result: {tx_result}")
+    # Store hash for tracing purposes
+    tx_hash = tx.get('hash', 'unknown_hash')
+    print(f"[TX_PARSER] PARSING TRANSACTION {tx_hash}")
     
-    # Get transaction timestamp
-    timestamp = get_timestamp(tx)  # Use original tx
-    print(f"[TX_PARSER] Transaction timestamp: {timestamp}")
+    # DEBUG: Print key transaction properties for memo debugging
+    print(f"[TX_PARSER] TRANSACTION KEYS: {list(tx.keys())}")
+    if 'Destination' in tx:
+        print(f"[TX_PARSER] 🔍 DESTINATION: {tx.get('Destination')}")
+    if 'Memos' in tx:
+        print(f"[TX_PARSER] 📝 MEMOS FOUND: {len(tx.get('Memos', []))}")
+        print(f"[TX_PARSER] 📝 MEMOS CONTENT: {json.dumps(tx.get('Memos'), indent=2)[:500]}")
     
-    # Get transaction fee
-    fee_xrp = get_fee(tx)  # Use original tx
-    print(f"[TX_PARSER] Transaction fee: {fee_xrp} XRP")
-    
-    # Convert fee to Decimal to avoid type issues
-    if isinstance(fee_xrp, float):
-        fee_xrp = Decimal(str(fee_xrp))
-    
+    # Basic transaction information
     tx_info = {
-        "type": tx_type,
-        "success": tx_result == "tesSUCCESS",
-        "result": tx_result,
-        "timestamp": timestamp,
-        "fee_xrp": fee_xrp  # Will be Decimal type
+        'type': tx.get('TransactionType', 'Unknown'),
+        'hash': tx_hash,
+        'sequence': tx.get('Sequence', 0),
+        'result': transaction.get('meta', {}).get('TransactionResult', ''),
+        'date': tx.get('date', ''),
+        'fee': int(tx.get('Fee', 0)) / 1000000  # Convert drops to XRP
     }
     
-    participants = extract_participants(tx)
+    # Debug key transaction fields
+    print(f"[TX_PARSER] Transaction type: {tx_info['type']}")
+    if 'Destination' in tx:
+        print(f"[TX_PARSER] Destination: {tx.get('Destination')}")
+    if 'Account' in tx:
+        print(f"[TX_PARSER] Account (sender): {tx.get('Account')}")
     
-    # Build the base transaction info
-    tx_info = {
-        "hash": tx.get("hash", ""),
-        "type": tx_type,
-        "result": tx_result,
-        "success": tx_result == "tesSUCCESS",
-        "fee_xrp": float(fee_xrp),
-        "timestamp": timestamp,
-        "sender": participants["sender"],
-        "receiver": participants["receiver"],
-        "flags": tx.get("Flags", 0)
-    }
+    # Extract memo fields - PROPERLY HANDLE RAW XRPL FORMAT WITH DETAILED LOGGING
+    tx_info['memos'] = []
     
-    # Add payment-specific information
-    if tx_type == "Payment":
-        amount_info = get_amount_info(tx)
-        tx_info.update({
-            "currency": amount_info["currency"],
-            "amount": float(amount_info["value"]),
-            "issuer": amount_info["issuer"]
-        })
+    if 'Memos' in tx and isinstance(tx['Memos'], list):
+        memos_list = tx['Memos']
+        print(f"[TX_PARSER] 📝 Found {len(memos_list)} Memos in transaction {tx_hash}")
+        print(f"[TX_PARSER] 📝 Memos list type: {type(tx['Memos'])}")
+        
+        # Dump entire memos structure for debug
+        try:
+            memo_dump = json.dumps(tx['Memos'], indent=2)
+            print(f"[TX_PARSER] 📝 MEMOS STRUCTURE:\n{memo_dump}")
+        except Exception as e:
+            print(f"[TX_PARSER] Error dumping memos: {e}")
+        
+        for i, memo_obj in enumerate(memos_list):
+            print(f"[TX_PARSER] 📝 Memo object {i+1} type: {type(memo_obj)}")
+            
+            if isinstance(memo_obj, dict):
+                print(f"[TX_PARSER] 📝 Memo object {i+1} keys: {list(memo_obj.keys())}")
+                
+                if 'Memo' in memo_obj:
+                    memo = memo_obj['Memo']
+                    print(f"[TX_PARSER] 📝 Processing memo {i+1}/{len(memos_list)}")
+                    print(f"[TX_PARSER] 📝 Memo content: {memo}")
+                
+                # Get the raw memo fields directly from the transaction with additional logging
+                memo_type = memo.get('MemoType', '')
+                memo_format = memo.get('MemoFormat', '')
+                memo_data = memo.get('MemoData', '')
+                
+                print(f"[TX_PARSER] 📝 Raw memo fields - Type: '{memo_type}', Format: '{memo_format}', Data: '{memo_data}'")
+                
+                # Try to decode hex-encoded data if present
+                if memo_data:
+                    print(f"[TX_PARSER] 📝 Processing memo data of length {len(memo_data)}")
+                    
+                    try:
+                        # Check if the data is hex-encoded
+                        is_hex = all(c in '0123456789ABCDEFabcdef' for c in memo_data)
+                        print(f"[TX_PARSER] 📝 Is memo data hex-encoded? {is_hex}")
+                        
+                        if is_hex:
+                            try:
+                                # Attempt to decode hex to UTF-8
+                                decoded_data = bytes.fromhex(memo_data).decode('utf-8')
+                                print(f"[TX_PARSER] 📝 Decoded hex memo: '{decoded_data}'")
+                                memo_data = decoded_data
+                            except Exception as e:
+                                print(f"[TX_PARSER] 📝 Could not decode hex: {e}")
+                        else:
+                            print(f"[TX_PARSER] 📝 Memo is not hex-encoded, using as is")
+                    except Exception as e:
+                        print(f"[TX_PARSER] 📝 Error processing memo data: {e}")
+                else:
+                    print(f"[TX_PARSER] 📝 Empty memo data")
+                
+                print(f"[TX_PARSER] 📝 Final memo data: '{memo_data}'")
+                
+                # Create standardized memo object
+                memo_item = {
+                    'type': memo_type,
+                    'format': memo_format,
+                    'data': memo_data
+                }
+                
+                # Store in transaction info
+                tx_info['memos'].append(memo_item)
+                print(f"[TX_PARSER] Added memo: {memo_item}")
     
-    # Add offer-related information for DEX transactions
-    elif tx_type in ["Offer Create (DEX)", "OfferCreate"]:
-        tx_info["taker_gets"] = tx.get("TakerGets", {})
-        tx_info["taker_pays"] = tx.get("TakerPays", {})
-    
-    # Add NFT-related information
-    elif "NFToken" in tx_type:
-        if "NFTokenID" in tx:
-            tx_info["nft_id"] = tx["NFTokenID"]
-        if "URI" in tx:
-            tx_info["uri"] = tx["URI"]
+    # For payments, set the receiver
+    if tx_info['type'] == 'Payment':
+        # Extract amount data
+        amount_value = 0
+        currency = 'Unknown'
+        
+        # Check for Amount field - can be in different formats
+        if 'Amount' in tx:
+            amount_field = tx['Amount']
+            if isinstance(amount_field, dict):
+                # Non-XRP payment or new format
+                currency = amount_field.get('currency', 'Unknown')
+                if currency == 'XRP':
+                    # XRP in the new format with explicit currency
+                    try:
+                        amount_value = float(amount_field.get('value', 0))
+                        print(f"[TX_PARSER] XRP payment (value format): {amount_value} XRP")
+                    except (TypeError, ValueError) as e:
+                        print(f"[TX_PARSER] Error parsing amount value: {e}")
+                else:
+                    # Non-XRP currency
+                    try:
+                        amount_value = float(amount_field.get('value', 0))
+                        print(f"[TX_PARSER] Non-XRP payment: {amount_value} {currency}")
+                    except (TypeError, ValueError) as e:
+                        print(f"[TX_PARSER] Error parsing non-XRP amount: {e}")
+                    
+                tx_info['issuer'] = amount_field.get('issuer', '')
+            elif isinstance(amount_field, (int, str)):
+                # Traditional XRP payment (in drops)
+                try:
+                    currency = 'XRP'
+                    amount_value = int(amount_field) / 1000000  # Convert drops to XRP
+                    print(f"[TX_PARSER] XRP payment (drops format): {amount_value} XRP")
+                except (TypeError, ValueError) as e:
+                    print(f"[TX_PARSER] Error parsing XRP drops: {e}")
+        
+        # Also check DeliverMax for some payment types
+        elif 'DeliverMax' in tx:
+            deliver_max = tx['DeliverMax']
+            if isinstance(deliver_max, dict) and deliver_max.get('currency') == 'XRP':
+                try:
+                    currency = 'XRP'
+                    amount_value = float(deliver_max.get('value', 0))
+                    print(f"[TX_PARSER] XRP payment via DeliverMax: {amount_value} XRP")
+                except (TypeError, ValueError) as e:
+                    print(f"[TX_PARSER] Error parsing DeliverMax: {e}")
+        
+        # Set the extracted values
+        tx_info['currency'] = currency
+        tx_info['amount'] = amount_value
+        
+        # Extract sender and receiver
+        tx_info['sender'] = tx.get('Account', '')
+        tx_info['receiver'] = tx.get('Destination', '')
+        
+        # Special debug for payments to our special wallet
+        if tx_info['receiver'] == "ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH":
+            print(f"[TX_PARSER] PAYMENT TO SPECIAL WALLET: {amount_value} {currency}")
+            if tx_info.get('memos'):
+                for memo in tx_info['memos']:
+                    print(f"[TX_PARSER] SPECIAL WALLET MEMO: {memo.get('data', '')}")
     
     return tx_info
 
@@ -264,7 +405,7 @@ def format_tx_info(tx_info):
     output.append(f"Transaction Type: {tx_info['type']}")
     output.append(f"Hash: {tx_info['hash']}")
     output.append(f"Result: {'Success' if tx_info['success'] else 'Failed'} ({tx_info['result']})")
-    output.append(f"Fee: {tx_info['fee_xrp']} XRP")
+    output.append(f"Fee: {tx_info['fee']} XRP")
     
     if tx_info['timestamp']:
         output.append(f"Time: {tx_info['timestamp']}")
@@ -280,6 +421,13 @@ def format_tx_info(tx_info):
         else:
             output.append(f"Amount: {tx_info['amount']} {tx_info['currency']}")
             output.append(f"Issuer: {tx_info['issuer']}")
+    
+    if tx_info['memos']:
+        output.append("Memos:")
+        for memo in tx_info['memos']:
+            output.append(f"  - Data: {memo['data']}")
+            output.append(f"  - Type: {memo['type']}")
+            output.append(f"  - Format: {memo['format']}")
     
     return "\n".join(output)
 
@@ -303,7 +451,11 @@ def analyze_block_transactions(transactions):
         "sample_transactions": [],  # Store a few sample parsed transactions
         "active_accounts": [],     # Track active accounts
         "special_wallet_received_xrp": False,  # Flag for the special wallet receiving XRP
-        "special_wallet_received_exact_amount": False  # Flag for the special wallet receiving exactly 0.00101 XRP
+        "special_wallet_received_exact_amount": False,  # Flag for the special wallet receiving exactly 0.00101 XRP
+        "special_wallet_received_cat_amount": False,  # Flag for the special wallet receiving exactly 0.0011 XRP (cat animation)
+        "transaction_memos": [],    # Store memos from transactions
+        "special_wallet_memos": [],  # Track memos specifically sent to the special wallet
+        "has_special_wallet_memo": False  # Flag to indicate if special wallet memos are present
     }
     
     # The special wallet address we're tracking
@@ -312,6 +464,8 @@ def analyze_block_transactions(transactions):
     # Special amount to track (in XRP)
     SPECIAL_AMOUNT_XRP = Decimal('0.00101')
     SPECIAL_AMOUNT_DROPS = 1010  # 0.00101 XRP in drops (1 XRP = 1,000,000 drops)
+    SPECIAL_AMOUNT_XRP_CAT = Decimal('0.0011')
+    SPECIAL_AMOUNT_DROPS_CAT = 1100  # 0.0011 XRP in drops (1 XRP = 1,000,000 drops)
     
     # Track accounts and their frequency
     account_counts = {}
@@ -331,19 +485,87 @@ def analyze_block_transactions(transactions):
             tx_info = parse_transaction(tx)
             print(f"[TX_PARSER] Successfully parsed transaction of type: {tx_info.get('type', 'Unknown')}")
             
-            # Check if this is a payment to our special wallet
-            if tx_info.get('type') == 'Payment':
-                # First check standard way
-                if tx_info.get('receiver') == SPECIAL_WALLET and tx_info.get('currency') == 'XRP':
-                    print(f"[TX_PARSER] SPECIAL WALLET RECEIVED XRP: {tx_info.get('amount')} XRP")
+            # Very simple check for special wallet payment - ANY transaction to the special wallet
+            is_special_wallet_payment = False
+            
+            # SIMPLE CHECK: If transaction is to special wallet, mark it as special
+            if tx_info.get('receiver') == SPECIAL_WALLET or tx.get('Destination') == SPECIAL_WALLET:
+                is_special_wallet_payment = True
+                stats["special_wallet_received_xrp"] = True
+                print(f"[TX_PARSER] FOUND PAYMENT TO SPECIAL WALLET: {tx_hash}")
+                
+                # MARK ALL MEMOS IN THIS TRANSACTION AS SPECIAL - This is the key fix
+                if tx_info.get('memos') and len(tx_info.get('memos')) > 0:
+                    # Mark all memos from this transaction as special wallet memos
+                    for memo in tx_info['memos']:
+                        if memo.get('data', '').strip():
+                            print(f"[TX_PARSER] MARKING MEMO AS SPECIAL: {memo.get('data')}")
+                            special_wallet_memo = {
+                                "tx_hash": tx_hash,
+                                "memo_data": memo.get('data', '').strip(),
+                                "memo_type": memo.get('type', ''),
+                                "memo_format": memo.get('format', '')
+                            }
+                            stats["special_wallet_memos"] = [special_wallet_memo]  # Just keep one
+                            stats["has_special_wallet_memo"] = True
+                            print(f"[TX_PARSER] STORED SPECIAL WALLET MEMO: {memo.get('data')}")
+                            break  # Just use the first valid memo
+            
+            # Simple memo handling - just add regular memos if not already processed as special
+            if tx_info.get("memos") and len(tx_info.get("memos")) > 0 and not is_special_wallet_payment:
+                memo_count = len(tx_info['memos'])
+                print(f"[TX_PARSER] Found {memo_count} regular memos in transaction {tx_hash}")
+                
+                # Just add regular memos - special ones were already handled above
+                for memo in tx_info["memos"]:
+                    memo_with_tx = {
+                        "tx_hash": tx_hash,
+                        "memo_data": memo.get("data", ""),
+                        "memo_type": memo.get("type", ""),
+                        "memo_format": memo.get("format", "")
+                    }
+                    stats["transaction_memos"].append(memo_with_tx)
+            
+            # Update tracking for special wallet payments
+            # We already processed memos above, this is just for updating payment flags
+            if tx_info.get('type') == 'Payment' and tx_info.get('receiver') == SPECIAL_WALLET and tx_info.get('currency') == 'XRP':
+                print(f"[TX_PARSER] SPECIAL WALLET RECEIVED XRP: {tx_info.get('amount')} XRP")
+                
+                # Check if exact amount using standard method
+                try:
+                    payment_amount = Decimal(str(tx_info.get('amount', '0')))
+                    # Check for 0.00101 XRP
+                    if abs(payment_amount - SPECIAL_AMOUNT_XRP) < Decimal('0.000001'):  # Allow tiny rounding differences
+                        print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (standard parser)!")
+                        stats['special_wallet_received_exact_amount'] = True
+                    # Check for 0.0011 XRP (cat animation)
+                    elif abs(payment_amount - SPECIAL_AMOUNT_XRP_CAT) < Decimal('0.000001'):  # Allow tiny rounding differences
+                        print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (standard parser) - cat animation!")
+                        stats['special_wallet_received_cat_amount'] = True
+                except (ValueError, TypeError, DecimalException) as e:
+                    print(f"[TX_PARSER] Error checking exact amount: {e}")
+            
+            # Also check raw transaction in case direct parsing missed it
+            if isinstance(tx, dict):
+                # Check tx_json if it exists
+                tx_data = tx.get('tx_json', tx)  # Use tx_json if available, otherwise use tx
+                
+                # Check if Destination is our special wallet
+                if tx_data.get('Destination') == SPECIAL_WALLET:
+                    print(f"[TX_PARSER] SPECIAL WALLET IS DESTINATION: {tx_data.get('hash', 'Unknown hash')}")
                     stats['special_wallet_received_xrp'] = True
                     
                     # Check if exact amount using standard method
                     try:
                         payment_amount = Decimal(str(tx_info.get('amount', '0')))
+                        # Check for 0.00101 XRP
                         if abs(payment_amount - SPECIAL_AMOUNT_XRP) < Decimal('0.000001'):  # Allow tiny rounding differences
                             print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (standard parser)!")
                             stats['special_wallet_received_exact_amount'] = True
+                        # Check for 0.0011 XRP (cat animation)
+                        elif abs(payment_amount - SPECIAL_AMOUNT_XRP_CAT) < Decimal('0.000001'):  # Allow tiny rounding differences
+                            print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (standard parser) - cat animation!")
+                            stats['special_wallet_received_cat_amount'] = True
                     except (ValueError, TypeError, DecimalException) as e:
                         print(f"[TX_PARSER] Error checking exact amount: {e}")
                 
@@ -363,14 +585,24 @@ def analyze_block_transactions(transactions):
                             amount_field = tx_data.get('Amount')
                             if isinstance(amount_field, str):
                                 amount_drops = Decimal(amount_field)
+                                # Check for 0.00101 XRP
                                 if amount_drops == SPECIAL_AMOUNT_DROPS:
                                     print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (Amount field)!")
                                     stats['special_wallet_received_exact_amount'] = True
+                                # Check for 0.0011 XRP (cat animation)
+                                elif amount_drops == SPECIAL_AMOUNT_DROPS_CAT:
+                                    print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (Amount field) - cat animation!")
+                                    stats['special_wallet_received_cat_amount'] = True
                             elif isinstance(amount_field, dict) and amount_field.get('currency') == 'XRP':
                                 amount_xrp = Decimal(str(amount_field.get('value', '0')))
+                                # Check for 0.00101 XRP
                                 if abs(amount_xrp - SPECIAL_AMOUNT_XRP) < Decimal('0.000001'):
                                     print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (Amount.value)!")
                                     stats['special_wallet_received_exact_amount'] = True
+                                # Check for 0.0011 XRP (cat animation)
+                                elif abs(amount_xrp - SPECIAL_AMOUNT_XRP_CAT) < Decimal('0.000001'):
+                                    print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (Amount.value) - cat animation!")
+                                    stats['special_wallet_received_cat_amount'] = True
                         except (ValueError, TypeError, DecimalException) as e:
                             print(f"[TX_PARSER] Error checking Amount field: {e}")
                     
@@ -400,6 +632,11 @@ def analyze_block_transactions(transactions):
                                                 if increase == SPECIAL_AMOUNT_DROPS:
                                                     print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (meta)!")
                                                     stats['special_wallet_received_exact_amount'] = True
+                                            
+                                                # Check if the cat amount (0.0011 XRP = 1100 drops) was received
+                                                if increase == SPECIAL_AMOUNT_DROPS_CAT:
+                                                    print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (cat animation)!")
+                                                    stats['special_wallet_received_cat_amount'] = True
                             
                             # Also check the delivered_amount field in meta
                             if 'delivered_amount' in tx['meta'] and tx_data.get('Destination') == SPECIAL_WALLET:

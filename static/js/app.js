@@ -70,14 +70,71 @@ document.addEventListener('DOMContentLoaded', function() {
         // 1. Check if specific wallet received EXACTLY 0.00101 XRP (highest priority)
         const specialWalletExactAmount = checkSpecificWalletReceivedExactAmount(data);
         
+        // 1b. Check if specific wallet received EXACTLY 0.0011 XRP (cat animation)
+        const specialWalletCatAmount = checkSpecificWalletReceivedCatAmount(data);
+        
         // 2. Check if specific wallet received any XRP (high priority)
         const specialWalletReceived = checkSpecificWalletReceivedXRP(data);
         
         // 3. Check if there are any NFT mint transactions (medium priority)
         const hasNFTMint = checkForNFTMintTransactions(data);
         
+        // EXTREME APPROACH: Complete override of memo system to guarantee prioritization
+        let selectedMemos = [];
+
+        // Entirely new approach to memo selection
+        // Only allow special wallet memos when present
+        // CRITICAL: Check each condition explicitly and individually
+        
+        // Check for special wallet memos first - this is our ONLY priority
+        if (data && data.tx_details) {
+            // Check explicitly if special wallet received payment
+            const specialWalletReceivedPayment = data.tx_details.special_wallet_received_xrp === true;
+            
+            // Check explicitly for the memos flag
+            const hasSpecialWalletMemoFlag = data.tx_details.has_special_wallet_memo === true;
+            
+            // Check directly if special wallet memos array exists and has content
+            const specialWalletMemosExist = Array.isArray(data.tx_details.special_wallet_memos) && 
+                                           data.tx_details.special_wallet_memos.length > 0;
+            
+            console.log('Special wallet payment?', specialWalletReceivedPayment);
+            console.log('Has memo flag?', hasSpecialWalletMemoFlag);
+            console.log('Special wallet memos exist?', specialWalletMemosExist);
+            
+            // CRITICAL SPECIAL WALLET MEMO CHECK
+            if (specialWalletReceivedPayment && hasSpecialWalletMemoFlag && specialWalletMemosExist) {
+                console.log('🔴 HIGHEST PRIORITY: Special wallet payment with memo detected!');
+                
+                // Take ONLY the first special wallet memo
+                const firstMemo = data.tx_details.special_wallet_memos[0];
+                
+                // Add one more validation on the memo data
+                if (firstMemo && typeof firstMemo.memo_data === 'string' && firstMemo.memo_data.trim() !== '') {
+                    console.log('🔴 CRITICAL: Using ONLY this special wallet memo:', firstMemo.memo_data);
+                    
+                    // Use ONLY this one memo
+                    selectedMemos = [firstMemo];
+                }
+            }
+            // If we don't have a special wallet memo, then we can try regular memos as fallback
+            else if (!specialWalletReceivedPayment && 
+                     Array.isArray(data.tx_details.transaction_memos) && 
+                     data.tx_details.transaction_memos.length > 0) {
+                     
+                console.log('No special wallet payment detected, using regular memo as fallback');
+                selectedMemos = data.tx_details.transaction_memos;
+            }
+        }
+        
+        if (selectedMemos.length > 0) {
+            console.log(`FINAL DECISION: Using ${selectedMemos.length} memos for display:`, selectedMemos);
+        } else {
+            console.log('No valid memos found for display');
+        }
+        
         // Update payment tracker if special wallet received payments
-        if (specialWalletExactAmount) {
+        if (specialWalletExactAmount || specialWalletCatAmount) {
             updatePaymentTracker(true); // Exact amount
         } else if (specialWalletReceived) {
             updatePaymentTracker(false); // Any amount
@@ -85,18 +142,23 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Create a walker with appropriate attributes
         const txCount = data.txn_count || 0;
-        createWalker(txCount, hasNFTMint, specialWalletReceived, specialWalletExactAmount);
+        createWalker(txCount, hasNFTMint, specialWalletReceived, specialWalletExactAmount, specialWalletCatAmount, selectedMemos);
     });
     
     // Function to check if specific wallet received EXACTLY 0.00101 XRP
     function checkSpecificWalletReceivedExactAmount(blockData) {
-        // Use the flag directly from the backend
-        if (blockData.tx_details && typeof blockData.tx_details.special_wallet_received_exact_amount === 'boolean') {
-            const result = blockData.tx_details.special_wallet_received_exact_amount;
-            if (result) {
-                console.log('Backend detected special wallet received EXACTLY 0.00101 XRP in this block!');
-            }
-            return result;
+        if (blockData && blockData.tx_details && blockData.tx_details.special_wallet_received_exact_amount === true) {
+            console.log('Backend detected special wallet received EXACTLY 0.00101 XRP in this block!');
+            return true;
+        }
+        return false;
+    }
+    
+    // Function to check if specific wallet received EXACTLY 0.0011 XRP (cat animation)
+    function checkSpecificWalletReceivedCatAmount(blockData) {
+        if (blockData && blockData.tx_details && blockData.tx_details.special_wallet_received_cat_amount === true) {
+            console.log('Backend detected special wallet received EXACTLY 0.0011 XRP in this block - cat animation!');
+            return true;
         }
         return false;
     }
@@ -285,8 +347,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // THIS FUNCTION IS REMOVED - We're using direct selection in the socket.on handler
+    // for more reliable memo extraction. This function is kept as a reference but not used.
+    function extractMemos_DEPRECATED(blockData) {
+        console.log('WARNING: This function is deprecated and should not be called');
+        return [];
+    }
+    
     // Function to create a walker div with size based on transaction count
-    function createWalker(txCount = 100, hasNFTMint = false, specialWalletReceived = false, specialWalletExactAmount = false) { // Default to 100 txns if not specified
+    function createWalker(txCount = 100, hasNFTMint = false, specialWalletReceived = false, specialWalletExactAmount = false, specialWalletCatAmount = false, memos = []) { // Default to 100 txns if not specified
         // Prevent overlapping by enforcing minimum time between walkers
         const now = Date.now();
         const minTimeBetweenWalkers = 2000; // 2 seconds
@@ -301,13 +370,18 @@ document.addEventListener('DOMContentLoaded', function() {
         walker.className = 'character'; // The CSS already has the animation
         
         // Updated Priority order for GIFs:
-        // 1. Special wallet received EXACTLY 0.00101 XRP (highest priority) - default_walker3.gif
-        // 2. Special wallet received any other XRP amount (high priority) - happy.gif
-        // 3. NFT mint transactions (lower priority) - default_walker1.gif
-        // 4. Default walker (lowest priority) - default_walker.gif (via CSS)
+        // 1. Special wallet received EXACTLY 0.0011 XRP (highest priority) - spinning_cat.gif
+        // 2. Special wallet received EXACTLY 0.00101 XRP (second highest priority) - default_walker3.gif
+        // 3. Special wallet received any other XRP amount (high priority) - happy.gif
+        // 4. NFT mint transactions (lower priority) - default_walker1.gif
+        // 5. Default walker (lowest priority) - default_walker.gif (via CSS)
         
-        if (specialWalletExactAmount) {
-            // Special wallet received EXACTLY 0.00101 XRP - HIGHEST priority
+        if (specialWalletCatAmount) {
+            // Special wallet received EXACTLY 0.0011 XRP - HIGHEST priority (cat animation)
+            console.log('Target wallet received EXACTLY 0.0011 XRP - using spinning_cat.gif');
+            walker.style.backgroundImage = "url('/static/images/spinning_cat.gif')";
+        } else if (specialWalletExactAmount) {
+            // Special wallet received EXACTLY 0.00101 XRP - SECOND highest priority
             console.log('Target wallet received EXACTLY 0.00101 XRP - using default_walker3.gif');
             walker.style.backgroundImage = "url('/static/images/default_walker3.gif')";
         } else if (specialWalletReceived) {
@@ -341,43 +415,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const groundY = containerHeight - 20; // 20px from the bottom for some padding
         walker.style.top = (groundY - walkerHeight) + 'px';
         
-        // Only create thinking cloud for default walker (not for special walkers)
+        // Thinking cloud is turned off as requested
         let thinkingCloud = null;
         
-        // Display thinking cloud only for default walker (not for any special walkers)
-        if (!hasNFTMint && !specialWalletReceived && !specialWalletExactAmount) {
-            // Create the thinking cloud element - only for regular walkers
-            thinkingCloud = document.createElement('div');
-            thinkingCloud.className = 'thinking-cloud';
-            
-            // Size the cloud proportionally to the walker (but smaller)
-            const cloudSize = walkerHeight * 0.9; // Cloud is 90% of walker size
-            thinkingCloud.style.width = cloudSize + 'px';
-            thinkingCloud.style.height = cloudSize + 'px';
-            
-            // Position the cloud above the right top corner of the walker
-            // Use the same top position as walker but subtract cloud height + some offset
-            const cloudTopOffset = 0; // Pixels above the walker
-            const cloudRightOffset = 70; // Move 70px to the right
-            
-            const walkerTop = parseInt(walker.style.top);
-            thinkingCloud.style.top = (walkerTop - cloudSize - cloudTopOffset) + 'px';
-            
-            // Add a left offset relative to the walker's animation
-            thinkingCloud.style.marginLeft = cloudRightOffset + 'px';
-        } else {
-            // Log why we're not showing the thinking cloud
-            if (specialWalletExactAmount) {
-                console.log('Special amount walker detected - not displaying thinking cloud');
-            } else if (specialWalletReceived) {
-                console.log('Happy walker detected - not displaying thinking cloud');
-            } else if (hasNFTMint) {
-                console.log('NFT walker detected - not displaying thinking cloud');
-            }
-        }
-        
-        // The cloud will follow the same horizontal animation as the walker
-        // We don't set left position as it's handled by the CSS animation
+        // No thinking cloud will be created
         
         // Update last walker time
         lastWalkerTime = now;
@@ -385,30 +426,95 @@ document.addEventListener('DOMContentLoaded', function() {
         // Add walker to container
         animationContainer.appendChild(walker);
         
-        // Only add cloud if it exists (not for NFT walkers)
-        if (thinkingCloud) {
-            animationContainer.appendChild(thinkingCloud);
+        // Thinking cloud is completely disabled
+        
+        // Add memo bubble if there are memos - EXTREME validation
+        if (memos && Array.isArray(memos) && memos.length > 0) {
+            // Use ONLY the first memo
+            const memo = memos[0];
+            console.log('🔄 Processing memo for display:', memo);
+            
+            // Triple check the memo structure and content
+            if (!memo || typeof memo !== 'object') {
+                console.error('❌ Invalid memo object:', memo);
+                return; // Stop processing if memo is invalid
+            }
+            
+            // Extract content with explicit validation
+            let memoContent = '';
+            if (memo.memo_data && typeof memo.memo_data === 'string' && memo.memo_data.trim() !== '') {
+                memoContent = memo.memo_data;
+                console.log('✅ Valid memo content found:', memoContent);
+            } else {
+                console.error('❌ Invalid or empty memo_data');
+                return; // Stop processing if memo content is invalid
+            }
+            
+            // Only create bubble if we have content
+            if (memoContent && memoContent.trim() !== '') {
+                console.log('Creating memo bubble with content:', memoContent);
+                
+                // Create the memo bubble
+                const memoBubble = document.createElement('div');
+                memoBubble.className = 'memo-bubble';
+                memoBubble.textContent = memoContent;
+                
+                // Position the bubble centered above the walker
+                const walkerTop = parseInt(walker.style.top);
+                const bubbleHeight = 60; // Adjusted for new bigger bubble
+                const bubbleOffset = 40; // Space between bubble and walker
+                
+                // Create a fixed position for the bubble that stays with the walker
+                memoBubble.style.position = 'absolute';
+                memoBubble.style.top = (walkerTop - bubbleHeight - bubbleOffset) + 'px';
+                
+                // Position the bubble so its 25% point is aligned with the walker's center
+                // This aligns the speech bubble's pointer with the walker
+                memoBubble.style.left = '25%';
+                
+                // Apply a specific offset to ensure walker is under the pointer
+                const walkerWidth = parseInt(walker.style.width);
+                const offsetAdjustment = walkerWidth / 4; // Quarter of walker width
+                memoBubble.style.marginLeft = offsetAdjustment + 'px';
+                
+                // Make the bubble track with the walker
+                memoBubble.style.animation = 'moveAcross 10s linear forwards, floatBubble 2s ease-in-out infinite';
+                
+                // Add the memo bubble to the container
+                animationContainer.appendChild(memoBubble);
+                
+                // Remove the bubble along with the walker
+                setTimeout(() => {
+                    if (memoBubble.parentNode) {
+                        memoBubble.parentNode.removeChild(memoBubble);
+                    }
+                }, 12000);
+                
+                console.log(`Added memo bubble with text: ${memo.memo_data}`);
+            }
         }
         
         // Log event for debugging
-        console.log(`Walker created: ${specialWalletExactAmount ? 'EXACT 0.00101 XRP' : 
+        console.log(`Walker created: ${specialWalletCatAmount ? 'EXACT 0.0011 XRP' : 
+                     specialWalletExactAmount ? 'EXACT 0.00101 XRP' : 
                      specialWalletReceived ? 'XRP PAYMENT' : 
                      hasNFTMint ? 'NFT MINT' : 'REGULAR'} - 
                      size: ${walkerHeight}px, 
                      tx count: ${txCount}`);
                      
         // Also log to server for debugging
-        if (specialWalletExactAmount || specialWalletReceived) {
+        if (specialWalletCatAmount || specialWalletExactAmount || specialWalletReceived) {
             socket.emit('frontend_event', {
                 type: 'special_wallet_detection',
                 data: {
-                    type: specialWalletExactAmount ? 'exact_amount' : 'any_amount',
+                    type: specialWalletCatAmount ? 'cat_amount' : 
+                          specialWalletExactAmount ? 'exact_amount' : 'any_amount',
                     timestamp: Date.now()
                 }
             });
         }
         
-        // Remove after animation (12 seconds)
+        // Remove walker and cloud after animation (12 seconds)
         setTimeout(() => {
             if (walker.parentNode) {
                 walker.parentNode.removeChild(walker);
@@ -416,7 +522,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (thinkingCloud && thinkingCloud.parentNode) {
                 thinkingCloud.parentNode.removeChild(thinkingCloud);
             }
-            const message = thinkingCloud ? 'Removed completed walker and thinking cloud' : 'Removed completed NFT walker';
+            const message = 'Removed completed walker';
             console.log(message);
         }, 12000);
     }
@@ -424,6 +530,25 @@ document.addEventListener('DOMContentLoaded', function() {
     // Simple window resize handler
     window.addEventListener('resize', function() {
         console.log('Window resized');
+    });
+    
+    // Collapse button handler
+    const collapseBtn = document.getElementById('collapse-btn');
+    const infoPanel = document.getElementById('info-panel');
+    
+    // Enhanced collapse button function
+    collapseBtn.addEventListener('click', function(e) {
+        // Prevent any default action
+        e.preventDefault();
+        
+        // Toggle the collapsed class
+        infoPanel.classList.toggle('collapsed');
+        
+        // Set aria-expanded attribute for accessibility
+        const isCollapsed = infoPanel.classList.contains('collapsed');
+        collapseBtn.setAttribute('aria-expanded', !isCollapsed);
+        
+        console.log('Panel collapse toggled, collapsed state:', isCollapsed);
     });
     
     // Add heartbeat to keep connection alive and detect silent failures
