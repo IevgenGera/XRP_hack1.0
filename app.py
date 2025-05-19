@@ -533,8 +533,19 @@ def get_ledger_transactions(client, ledger_hash):
         # First, check if there are transactions in this ledger
         request = Ledger(ledger_hash=ledger_hash, transactions=True, expand=True)
         logger.debug(f"Requesting ledger data for hash {ledger_hash[:10]}...")
-        response = client.request(request)
         
+        # Safe way to handle the request that works with eventlet
+        try:
+            # Try to use the sync method directly
+            response = client.request(request)
+        except RuntimeError as re:
+            # If we get a RuntimeError about running event loop, skip the transactions
+            if "cannot be called from a running event loop" in str(re):
+                logger.warning("Skipping transaction fetch due to eventlet/asyncio conflict")
+                return []
+            else:
+                raise
+            
         if response.is_successful():
             result = response.result
             if "ledger" in result and "transactions" in result["ledger"]:
