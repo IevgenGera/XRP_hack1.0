@@ -2,7 +2,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM fully loaded');
     
     // Connect to SocketIO with reconnection options
-    const socket = io({
+    console.log('Attempting to connect to Socket.IO server at:', window.location.origin);
+    const socket = io(window.location.origin, {
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,

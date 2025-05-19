@@ -59,10 +59,17 @@ file_handler.setFormatter(file_format)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-# Initialize Flask
+# Initialize Flask app and SocketIO
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'
-socketio = SocketIO(app, cors_allowed_origins="*")
+app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'  # Change for production
+
+# Enhanced SocketIO setup for Railway deployment
+socketio = SocketIO(app, 
+                   cors_allowed_origins="*",
+                   logger=True, 
+                   engineio_logger=True,
+                   ping_timeout=60,
+                   ping_interval=25)
 logger.info("Flask application initialized")
 
 # Global variables
