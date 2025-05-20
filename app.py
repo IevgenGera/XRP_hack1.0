@@ -565,8 +565,10 @@ if __name__ == '__main__':
         logger.info("Starting XRPL listener thread")
         start_xrpl_thread()
         
+        port = int(os.environ.get('PORT', 8000))
+
         logger.info("Starting Flask server")
-        socketio.run(app, host='0.0.0.0', port=8000, debug=True, allow_unsafe_werkzeug=True)
+        socketio.run(app, host='0.0.0.0', port=port, debug=True, allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received. Shutting down...")
         stop_xrpl_thread()
