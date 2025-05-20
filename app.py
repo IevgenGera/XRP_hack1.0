@@ -13,8 +13,8 @@ import time
 from collections import defaultdict
 from decimal import Decimal
 
-from flask import Flask, render_template, copy_current_request_context
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template
+from flask_socketio import SocketIO
 
 from xrpl.clients import WebsocketClient
 from xrpl.models import Subscribe, StreamParameter
@@ -59,20 +59,11 @@ file_handler.setFormatter(file_format)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-# Initialize Flask app and SocketIO
+# Initialize Flask
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'  # Change for production
-
-# Enhanced SocketIO setup for Railway deployment
-socketio = SocketIO(app, 
-                   cors_allowed_origins="*",
-                   logger=True, 
-                   engineio_logger=True,
-                   ping_timeout=120,  # Extended ping timeout
-                   ping_interval=25,
-                   async_mode='eventlet',  # Use eventlet for production
-                   manage_session=False)  # Disable Flask session management for better performance
-logger.info("Flask application initialized with optimized Socket.IO settings")
+app.config['SECRET_KEY'] = 'xrp_ledger_visualizer'
+socketio = SocketIO(app, cors_allowed_origins="*")
+logger.info("Flask application initialized")
 
 # Global variables
 client = None
@@ -394,19 +385,9 @@ def xrpl_listener():
                         # Add transaction details to ledger info
                         ledger_info["tx_details"] = tx_details
                         
-                        try:
-                            # Thread-safe approach to emit Socket.IO events from background threads
-                            def emit_with_app_context(data, ledger_idx):
-                                with app.app_context():
-                                    # Using engineio's internal async mode to properly handle thread-safe emits
-                                    socketio.emit('new_block', data, namespace='/', broadcast=True)
-                                    logger.debug(f"Emitted ledger #{ledger_idx} data to connected clients via thread-safe method")
-                            
-                            # Use socketio's proper thread handling
-                            socketio.start_background_task(emit_with_app_context, ledger_info, ledger_index)
-                            
-                        except Exception as emit_error:
-                            logger.error(f"Error emitting event: {emit_error}", exc_info=True)
+                        # Send to all connected clients
+                        socketio.emit('new_block', ledger_info)
+                        logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
                 
         except Exception as e:
             # Handle WebSocket connection errors
@@ -552,19 +533,8 @@ def get_ledger_transactions(client, ledger_hash):
         # First, check if there are transactions in this ledger
         request = Ledger(ledger_hash=ledger_hash, transactions=True, expand=True)
         logger.debug(f"Requesting ledger data for hash {ledger_hash[:10]}...")
+        response = client.request(request)
         
-        # Safe way to handle the request that works with eventlet
-        try:
-            # Try to use the sync method directly
-            response = client.request(request)
-        except RuntimeError as re:
-            # If we get a RuntimeError about running event loop, skip the transactions
-            if "cannot be called from a running event loop" in str(re):
-                logger.warning("Skipping transaction fetch due to eventlet/asyncio conflict")
-                return []
-            else:
-                raise
-            
         if response.is_successful():
             result = response.result
             if "ledger" in result and "transactions" in result["ledger"]:
@@ -595,11 +565,8 @@ if __name__ == '__main__':
         logger.info("Starting XRPL listener thread")
         start_xrpl_thread()
         
-        # Get port from environment variable for Railway deployment
-        port = int(os.environ.get('PORT', 8000))
-        
-        logger.info(f"Starting Flask server on port {port}")
-        socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+        logger.info("Starting Flask server")
+        socketio.run(app, host='0.0.0.0', port=8000, debug=True, allow_unsafe_werkzeug=True)
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received. Shutting down...")
         stop_xrpl_thread()
