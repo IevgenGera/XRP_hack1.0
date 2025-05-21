@@ -472,82 +472,114 @@ def analyze_block_transactions(transactions):
     # Track accounts and their frequency
     account_counts = {}
     
-    # Process each transaction
+    # Process each transaction with robust error handling
     for i, tx in enumerate(transactions):
-        print(f"[TX_PARSER] Processing transaction {i+1}/{len(transactions)}")
-        
-        # Debug transaction before parsing
-        tx_hash = "Unknown"
-        if isinstance(tx, dict):
-            tx_hash = tx.get("hash", tx.get("id", "Unknown"))
-            print(f"[TX_PARSER] Transaction hash: {tx_hash}")
-        
-        # Parse the transaction
         try:
-            tx_info = parse_transaction(tx)
-            print(f"[TX_PARSER] Successfully parsed transaction of type: {tx_info.get('type', 'Unknown')}")
+            print(f"[TX_PARSER] Processing transaction {i+1}/{len(transactions)}")
             
-            # Very simple check for special wallet payment - ANY transaction to the special wallet
-            is_special_wallet_payment = False
+            # Debug transaction before parsing
+            tx_hash = "Unknown"
+            if isinstance(tx, dict):
+                tx_hash = tx.get("hash", tx.get("id", "Unknown"))
+                print(f"[TX_PARSER] Transaction hash: {tx_hash}")
+            else:
+                print(f"[TX_PARSER] Warning: Transaction is not a dictionary: {type(tx)}")
+                continue  # Skip non-dict transactions
             
-            # SIMPLE CHECK: If transaction is to special wallet, mark it as special
-            if tx_info.get('receiver') == SPECIAL_WALLET or tx.get('Destination') == SPECIAL_WALLET:
-                is_special_wallet_payment = True
-                stats["special_wallet_received_xrp"] = True
-                print(f"[TX_PARSER] FOUND PAYMENT TO SPECIAL WALLET: {tx_hash}")
+            # Parse the transaction with error handling
+            try:
+                tx_info = parse_transaction(tx)
+                print(f"[TX_PARSER] Successfully parsed transaction of type: {tx_info.get('type', 'Unknown')}")
                 
-                # MARK ALL MEMOS IN THIS TRANSACTION AS SPECIAL - This is the key fix
-                if tx_info.get('memos') and len(tx_info.get('memos')) > 0:
-                    # Mark all memos from this transaction as special wallet memos
-                    for memo in tx_info['memos']:
-                        if memo.get('data', '').strip():
-                            print(f"[TX_PARSER] MARKING MEMO AS SPECIAL: {memo.get('data')}")
-                            special_wallet_memo = {
+                # Very simple check for special wallet payment - ANY transaction to the special wallet
+                is_special_wallet_payment = False
+                
+                # SIMPLE CHECK: If transaction is to special wallet, mark it as special
+                if tx_info.get('receiver') == SPECIAL_WALLET or tx.get('Destination') == SPECIAL_WALLET:
+                    is_special_wallet_payment = True
+                    stats["special_wallet_received_xrp"] = True
+                    print(f"[TX_PARSER] FOUND PAYMENT TO SPECIAL WALLET: {tx_hash}")
+                    
+                    # MARK ALL MEMOS IN THIS TRANSACTION AS SPECIAL - This is the key fix
+                    if tx_info.get('memos') and len(tx_info.get('memos')) > 0:
+                        # Mark all memos from this transaction as special wallet memos
+                        for memo in tx_info['memos']:
+                            try:
+                                if memo.get('data', '').strip():
+                                    print(f"[TX_PARSER] MARKING MEMO AS SPECIAL: {memo.get('data')}")
+                                    special_wallet_memo = {
+                                        "tx_hash": tx_hash,
+                                        "memo_data": memo.get('data', '').strip(),
+                                        "memo_type": memo.get('type', ''),
+                                        "memo_format": memo.get('format', '')
+                                    }
+                                    stats["special_wallet_memos"] = [special_wallet_memo]  # Just keep one
+                                    stats["has_special_wallet_memo"] = True
+                                    print(f"[TX_PARSER] STORED SPECIAL WALLET MEMO: {memo.get('data')}")
+                                    break  # Just use the first valid memo
+                            except Exception as memo_err:
+                                print(f"[TX_PARSER] Error processing memo: {memo_err}")
+                                continue  # Continue to next memo
+                
+                # Simple memo handling - just add regular memos if not already processed as special
+                if tx_info.get("memos") and len(tx_info.get("memos")) > 0 and not is_special_wallet_payment:
+                    memo_count = len(tx_info['memos'])
+                    print(f"[TX_PARSER] Found {memo_count} regular memos in transaction {tx_hash}")
+                    
+                    # Just add regular memos - special ones were already handled above
+                    for memo in tx_info["memos"]:
+                        try:
+                            memo_with_tx = {
                                 "tx_hash": tx_hash,
-                                "memo_data": memo.get('data', '').strip(),
-                                "memo_type": memo.get('type', ''),
-                                "memo_format": memo.get('format', '')
+                                "memo_data": memo.get("data", ""),
+                                "memo_type": memo.get("type", ""),
+                                "memo_format": memo.get("format", "")
                             }
-                            stats["special_wallet_memos"] = [special_wallet_memo]  # Just keep one
-                            stats["has_special_wallet_memo"] = True
-                            print(f"[TX_PARSER] STORED SPECIAL WALLET MEMO: {memo.get('data')}")
-                            break  # Just use the first valid memo
-            
-            # Simple memo handling - just add regular memos if not already processed as special
-            if tx_info.get("memos") and len(tx_info.get("memos")) > 0 and not is_special_wallet_payment:
-                memo_count = len(tx_info['memos'])
-                print(f"[TX_PARSER] Found {memo_count} regular memos in transaction {tx_hash}")
+                            stats["transaction_memos"].append(memo_with_tx)
+                        except Exception as memo_err:
+                            print(f"[TX_PARSER] Error adding regular memo: {memo_err}")
+                            continue  # Continue to next memo
                 
-                # Just add regular memos - special ones were already handled above
-                for memo in tx_info["memos"]:
-                    memo_with_tx = {
-                        "tx_hash": tx_hash,
-                        "memo_data": memo.get("data", ""),
-                        "memo_type": memo.get("type", ""),
-                        "memo_format": memo.get("format", "")
-                    }
-                    stats["transaction_memos"].append(memo_with_tx)
-            
-            # Update tracking for special wallet payments
-            # We already processed memos above, this is just for updating payment flags
-            if tx_info.get('type') == 'Payment' and tx_info.get('receiver') == SPECIAL_WALLET and tx_info.get('currency') == 'XRP':
-                print(f"[TX_PARSER] SPECIAL WALLET RECEIVED XRP: {tx_info.get('amount')} XRP")
+                # Update tracking for special wallet payments
+                # We already processed memos above, this is just for updating payment flags
+                if tx_info.get('type') == 'Payment' and tx_info.get('receiver') == SPECIAL_WALLET and tx_info.get('currency') == 'XRP':
+                    print(f"[TX_PARSER] SPECIAL WALLET RECEIVED XRP: {tx_info.get('amount')} XRP")
+                    
+                    # Check if exact amount using standard method
+                    try:
+                        payment_amount = Decimal(str(tx_info.get('amount', '0')))
+                        # Check for 0.00101 XRP
+                        if abs(payment_amount - SPECIAL_AMOUNT_XRP) < Decimal('0.000001'):  # Allow tiny rounding differences
+                            print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (standard parser)!")
+                            stats['special_wallet_received_exact_amount'] = True
+                        # Check for 0.0011 XRP (cat animation)
+                        elif abs(payment_amount - SPECIAL_AMOUNT_XRP_CAT) < Decimal('0.000001'):  # Allow tiny rounding differences
+                            print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (standard parser) - cat animation!")
+                            stats['special_wallet_received_cat_amount'] = True
+                    except (ValueError, TypeError, DecimalException) as e:
+                        print(f"[TX_PARSER] Error checking exact amount: {e}")
                 
-                # Check if exact amount using standard method
+                # Update stats in a safe way
                 try:
-                    payment_amount = Decimal(str(tx_info.get('amount', '0')))
-                    # Check for 0.00101 XRP
-                    if abs(payment_amount - SPECIAL_AMOUNT_XRP) < Decimal('0.000001'):  # Allow tiny rounding differences
-                        print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP} XRP (standard parser)!")
-                        stats['special_wallet_received_exact_amount'] = True
-                    # Check for 0.0011 XRP (cat animation)
-                    elif abs(payment_amount - SPECIAL_AMOUNT_XRP_CAT) < Decimal('0.000001'):  # Allow tiny rounding differences
-                        print(f"[TX_PARSER] SPECIAL WALLET RECEIVED EXACTLY {SPECIAL_AMOUNT_XRP_CAT} XRP (standard parser) - cat animation!")
-                        stats['special_wallet_received_cat_amount'] = True
-                except (ValueError, TypeError, DecimalException) as e:
-                    print(f"[TX_PARSER] Error checking exact amount: {e}")
+                    # Count transaction types
+                    tx_type = tx_info.get('type', 'Unknown')
+                    stats["transaction_types"][tx_type] = stats["transaction_types"].get(tx_type, 0) + 1
+                    print(f"[TX_PARSER] Counted transaction type: {tx_type}")
+                    
+                    # Add to sample transactions (safely)
+                    if len(stats["sample_transactions"]) < 10:  # Limit to 10 samples
+                        stats["sample_transactions"].append(tx_info)
+                except Exception as stats_error:
+                    print(f"[TX_PARSER] Error updating transaction stats: {stats_error}")
+                
+            except Exception as parse_error:
+                print(f"[TX_PARSER] Error parsing transaction {tx_hash}: {parse_error}")
+                continue  # Skip this transaction but continue processing others
             
             # Also check raw transaction in case direct parsing missed it
+        except Exception as tx_error:
+            print(f"[TX_PARSER] Critical error processing transaction {i+1}/{len(transactions)}: {tx_error}")
+            continue  # Skip this transaction but continue with others
             if isinstance(tx, dict):
                 # Check tx_json if it exists
                 tx_data = tx.get('tx_json', tx)  # Use tx_json if available, otherwise use tx
@@ -748,141 +780,217 @@ def format_block_stats(stats):
     return "\n".join(output)
 
 def fetch_latest_ledger_data():
-    """Fetch the latest ledger data from the XRP Ledger."""
+    """Fetch the latest ledger data from the XRP Ledger with robust error handling and retry logic."""
     import requests
+    import random
+    import time
+    import logging
     
+    # Set up logging if it exists (used by app.py) or fall back to print
     try:
-        # Connect to XRPL public API
-        response = requests.post(
-            "https://s1.ripple.com:51234/",
-            json={
-                "method": "ledger",
-                "params": [
-                    {
-                        "ledger_index": "validated",
-                        "transactions": True,
-                        "expand": True
-                    }
-                ]
-            }
-        )
-        
-        data = response.json()
-        
-        if "result" in data and "ledger" in data["result"]:
-            ledger = data["result"]["ledger"]
-            transactions = ledger.get("transactions", [])
-            ledger_index = ledger.get("ledger_index")
-            
-            print(f"\nFetched ledger #{ledger_index} with {len(transactions)} transactions")
-            return ledger_index, transactions
-        else:
-            print("Error fetching ledger data:", data)
-            return None, []
+        logger = logging.getLogger('xrp_visualizer')
+    except:
+        # Define a simple logger that just prints if we can't access the app logger
+        class SimpleLogger:
+            def debug(self, msg): print(f"DEBUG: {msg}")
+            def info(self, msg): print(f"INFO: {msg}")
+            def warning(self, msg): print(f"WARNING: {msg}")
+            def error(self, msg): print(f"ERROR: {msg}")
+        logger = SimpleLogger()
     
-    except Exception as e:
-        print(f"Error connecting to XRP Ledger: {e}")
-        return None, []
+    # List of available XRP Ledger API endpoints for fallback
+    endpoints = [
+        "https://s1.ripple.com:51234/",
+        "https://s2.ripple.com:51234/",
+        "https://xrplcluster.com/"
+    ]
+    
+    # Initialize variables for retry logic
+    max_retries = 3
+    attempts = 0
+    last_error = None
+    backoff_time = 1  # Start with 1 second backoff
+    
+    while attempts < max_retries:
+        # Choose an endpoint (cycle through them on retries)
+        endpoint = endpoints[attempts % len(endpoints)]
+        
+        try:
+            logger.debug(f"Fetching latest ledger from {endpoint} (attempt {attempts+1}/{max_retries})")
+            
+            # Set timeout to avoid hanging
+            response = requests.post(
+                endpoint,
+                json={
+                    "method": "ledger",
+                    "params": [
+                        {
+                            "ledger_index": "validated",
+                            "transactions": True,
+                            "expand": True
+                        }
+                    ]
+                },
+                timeout=15  # Set a reasonable timeout (ledger data can be large)
+            )
+            
+            # Check if the response status code is successful
+            if response.status_code != 200:
+                logger.warning(f"Received HTTP status {response.status_code} from {endpoint}")
+                raise Exception(f"HTTP Error: {response.status_code}")
+            
+            data = response.json()
+            
+            # Check if we got a valid result
+            if "result" in data and "ledger" in data["result"]:
+                ledger = data["result"]["ledger"]
+                transactions = ledger.get("transactions", [])
+                ledger_index = ledger.get("ledger_index")
+                
+                logger.info(f"Fetched ledger #{ledger_index} with {len(transactions)} transactions")
+                return ledger_index, transactions
+            else:
+                logger.warning(f"Invalid response format or missing ledger data: {data}")
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"Timeout connecting to {endpoint}")
+            last_error = "Timeout"
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"Connection error with {endpoint}")
+            last_error = "Connection Error"
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Request error: {str(e)}")
+            last_error = str(e)
+        except Exception as e:
+            logger.warning(f"Error fetching ledger data: {str(e)}")
+            last_error = str(e)
+        
+        # Increment attempt counter
+        attempts += 1
+        
+        # If we've reached max retries, break out of the loop
+        if attempts >= max_retries:
+            break
+        
+        # Implement exponential backoff with jitter
+        jitter = random.uniform(0, 0.1 * backoff_time)
+        sleep_time = backoff_time + jitter
+        logger.debug(f"Retrying in {sleep_time:.2f} seconds...")
+        time.sleep(sleep_time)
+        
+        # Increase backoff time for next attempt (exponential backoff)
+        backoff_time = min(backoff_time * 2, 10)  # Cap at 10 seconds
+    
+    # If we've exhausted all retries, log the error and return None
+    logger.error(f"Failed to fetch latest ledger data after {max_retries} attempts. Last error: {last_error}")
+    return None, []
 
 
 def fetch_transaction_by_hash(tx_hash):
-    """Fetch a specific transaction by its hash."""
+    """Fetch a specific transaction by its hash with robust error handling and retry logic."""
     import requests
+    import random
+    import time
+    import logging
     
+    # Set up logging if it exists (used by app.py) or fall back to print
     try:
-        # Connect to XRPL public API
-        response = requests.post(
-            "https://s1.ripple.com:51234/",
-            json={
-                "method": "tx",
-                "params": [
-                    {
-                        "transaction": tx_hash,
-                        "binary": False
-                    }
-                ]
-            }
-        )
+        logger = logging.getLogger('xrp_visualizer')
+    except:
+        # Define a simple logger that just prints if we can't access the app logger
+        class SimpleLogger:
+            def debug(self, msg): print(f"DEBUG: {msg}")
+            def info(self, msg): print(f"INFO: {msg}")
+            def warning(self, msg): print(f"WARNING: {msg}")
+            def error(self, msg): print(f"ERROR: {msg}")
+        logger = SimpleLogger()
+    
+    # List of available XRP Ledger API endpoints for fallback
+    endpoints = [
+        "https://s1.ripple.com:51234/",
+        "https://s2.ripple.com:51234/",
+        "https://xrplcluster.com/"
+    ]
+    
+    # Initialize variables for retry logic
+    max_retries = 3
+    attempts = 0
+    last_error = None
+    backoff_time = 1  # Start with 1 second backoff
+    
+    while attempts < max_retries:
+        # Choose an endpoint (cycle through them on retries)
+        endpoint = endpoints[attempts % len(endpoints)]
         
-        data = response.json()
-        
-        if "result" in data and "validated" in data["result"]:
-            return data["result"]
-        else:
-            print("Error fetching transaction:", data)
-            return None
-    
-    except Exception as e:
-        print(f"Error connecting to XRP Ledger: {e}")
-        return None
-
-
-# Simple XRP transaction parser - enter a hash below to fetch and analyze it
-
-def main():
-    """Parse and analyze an XRP Ledger transaction by its hash."""
-    import sys
-    
-    # Get transaction hash from command line argument or input
-    if len(sys.argv) > 1:
-        # If provided as command line argument
-        tx_hash = sys.argv[1]
-    else:
-        # Otherwise prompt for it
-        tx_hash = input("Enter transaction hash to analyze: ")
-    
-    if not tx_hash or tx_hash.strip() == "":
-        print("Error: No transaction hash provided.")
-        return
-    
-    # Clean up any whitespace
-    tx_hash = tx_hash.strip()
-    
-    print(f"Fetching transaction with hash: {tx_hash}")
-    tx = fetch_transaction_by_hash(tx_hash)
-    
-    if not tx:
-        print("Error: No transaction found with that hash.")
-        return
-    
-    # Parse and display transaction details
-    tx_info = parse_transaction(tx)
-    
-    print("\n=== Transaction Details ===")
-    print(format_tx_info(tx_info))
-    
-    print("\n=== Transaction Type Analysis ===")
-    tx_type = tx.get("TransactionType", "Unknown")
-    print(f"Transaction Type: {tx_type}")
-    
-    # Display different details based on transaction type
-    if tx_type == "Payment":
-        print("\n=== Payment Details ===")
         try:
-            amount = tx.get("Amount", "Unknown")
-            if isinstance(amount, str) and amount.isdigit():
-                # Convert drops to XRP
-                amount_xrp = int(amount) / 1000000
-                print(f"Amount: {amount_xrp} XRP ({amount} drops)")
-            else:
-                print(f"Amount: {amount}")
+            logger.debug(f"Fetching transaction {tx_hash} from {endpoint} (attempt {attempts+1}/{max_retries})")
             
-            print(f"From: {tx.get('Account', 'Unknown')}")
-            print(f"To: {tx.get('Destination', 'Unknown')}")
-            print(f"Fee: {int(tx.get('Fee', 0)) / 1000000} XRP")
+            # Set timeout to avoid hanging
+            response = requests.post(
+                endpoint,
+                json={
+                    "method": "tx",
+                    "params": [
+                        {
+                            "transaction": tx_hash,
+                            "binary": False
+                        }
+                    ]
+                },
+                timeout=10  # Set a reasonable timeout
+            )
+            
+            # Check if the response status code is successful
+            if response.status_code != 200:
+                logger.warning(f"Received HTTP status {response.status_code} from {endpoint}")
+                raise Exception(f"HTTP Error: {response.status_code}")
+            
+            data = response.json()
+            
+            # Check if we got a valid result
+            if "result" in data:
+                if "validated" in data["result"]:
+                    logger.debug(f"Successfully fetched transaction {tx_hash}")
+                    return data["result"]
+                else:
+                    logger.warning(f"Transaction not validated: {data}")
+                    # If it's not validated but exists, might be too recent
+                    # Wait longer before retrying in this case
+                    backoff_time = backoff_time * 1.5
+            else:
+                logger.warning(f"Invalid response format: {data}")
+            
+        except requests.exceptions.Timeout:
+            logger.warning(f"Timeout connecting to {endpoint}")
+            last_error = "Timeout"
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"Connection error with {endpoint}")
+            last_error = "Connection Error"
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Request error: {str(e)}")
+            last_error = str(e)
         except Exception as e:
-            print(f"Error parsing payment details: {e}")
+            logger.warning(f"Error fetching transaction: {str(e)}")
+            last_error = str(e)
+        
+        # Increment attempt counter
+        attempts += 1
+        
+        # If we've reached max retries, break out of the loop
+        if attempts >= max_retries:
+            break
+        
+        # Implement exponential backoff with jitter
+        jitter = random.uniform(0, 0.1 * backoff_time)
+        sleep_time = backoff_time + jitter
+        logger.debug(f"Retrying in {sleep_time:.2f} seconds...")
+        time.sleep(sleep_time)
+        
+        # Increase backoff time for next attempt (exponential backoff)
+        backoff_time = min(backoff_time * 2, 10)  # Cap at 10 seconds
     
-    # Print other useful transaction metadata
-    print("\n=== Transaction Metadata ===")
-    result = tx.get("meta", {}).get("TransactionResult", "Unknown")
-    print(f"Result: {result}")
-    
-    # If you want to see the full transaction data, uncomment this section
-    # print("\n=== Raw Transaction Data ===")
-    # print(json.dumps(tx, indent=2))
-    
-    
+    # If we've exhausted all retries, log the error and return None
+    logger.error(f"Failed to fetch transaction {tx_hash} after {max_retries} attempts. Last error: {last_error}")
+    return None
 
-if __name__ == "__main__":
-    main()
+

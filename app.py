@@ -143,252 +143,276 @@ def xrpl_listener():
                 heartbeat_interval = 30  # seconds
                 
                 for message in client:
-                    if not running:
-                        logger.debug("Stopping XRPL listener as running flag is False")
-                        break
-                    
-                    # Update last message timestamp whenever we get any message
-                    last_message_time = time.time()
-                    
-                    # Check for heartbeat/pong messages to ensure connection is alive
-                    if message and isinstance(message, dict) and message.get("type") == "pong":
-                        logger.debug("Received pong from XRPL server")
-                        continue
-                    
-                    # Check if this is a ledger closed message
-                    if message and isinstance(message, dict) and message.get("type") == "ledgerClosed":
-                        # Format the ledger information
-                        ledger_info = format_ledger_info(message)
-                        if ledger_info:
-                            ledger_hash = message.get('ledger_hash')
-                            ledger_index = ledger_info['ledger_index']
-                            txn_count = ledger_info['txn_count']
-                            logger.info(f"New ledger: #{ledger_index} with {txn_count} transactions")
-                            
-                            # Only fetch detailed transactions if there are any
-                            tx_details = {}
-                            if txn_count > 0:
-                                try:
-                                    # Fetch all transactions for this ledger
-                                    logger.debug(f"Fetching transactions for ledger #{ledger_index}")
-                                    transactions = get_ledger_transactions(client, ledger_hash)
-                                    
-                                    # Analyze the transactions
-                                    if transactions:
-                                        logger.debug(f"Analyzing {len(transactions)} transactions from ledger #{ledger_index}")
+                    try:
+                        if not running:
+                            logger.debug("Stopping XRPL listener as running flag is False")
+                            break
+                        
+                        # Update last message timestamp whenever we get any message
+                        last_message_time = time.time()
+                        
+                        # Check for heartbeat/pong messages to ensure connection is alive
+                        if message and isinstance(message, dict) and message.get("type") == "pong":
+                            logger.debug("Received pong from XRPL server")
+                            continue
+                        
+                        # Check if this is a ledger closed message
+                        if message and isinstance(message, dict) and message.get("type") == "ledgerClosed":
+                            # Format the ledger information
+                            ledger_info = format_ledger_info(message)
+                            if ledger_info:
+                                ledger_hash = message.get('ledger_hash')
+                                ledger_index = ledger_info['ledger_index']
+                                txn_count = ledger_info['txn_count']
+                                logger.info(f"New ledger: #{ledger_index} with {txn_count} transactions")
+                                
+                                # Only fetch detailed transactions if there are any
+                                tx_details = {}
+                                if txn_count > 0:
+                                    try:
+                                        # Fetch all transactions for this ledger
+                                        logger.debug(f"Fetching transactions for ledger #{ledger_index}")
+                                        transactions = get_ledger_transactions(client, ledger_hash)
                                         
-                                        # Debug: Print structure of the first transaction to understand format
-                                        if len(transactions) > 0:
-                                            first_tx = transactions[0]
-                                            logger.debug(f"First transaction type: {type(first_tx)}")
-                                            logger.debug(f"First transaction keys: {list(first_tx.keys()) if isinstance(first_tx, dict) else 'Not a dict'}")
-                                            if isinstance(first_tx, dict):
-                                                # Check if TransactionType exists directly
-                                                if 'TransactionType' in first_tx:
-                                                    logger.debug(f"Transaction type from key: {first_tx['TransactionType']}")
-                                                # Try the get_transaction_type function
-                                                tx_type = get_transaction_type(first_tx)
-                                                logger.debug(f"Transaction type from function: {tx_type}")
-                                                # Check common nested locations
-                                                for location in ['tx', 'transaction', 'meta']:
-                                                    if location in first_tx and isinstance(first_tx[location], dict):
-                                                        logger.debug(f"Contents in '{location}': {list(first_tx[location].keys())}")
+                                        # Analyze the transactions
+                                        if transactions:
+                                            logger.debug(f"Analyzing {len(transactions)} transactions from ledger #{ledger_index}")
                                             
-                                            # Print a sample of the transaction to inspect
-                                            tx_sample = json.dumps(first_tx)[:500]
-                                            logger.debug(f"Transaction sample: {tx_sample}...")
-                                        
-                                        # Use the analyze_block_transactions function from tx_parser
-                                        tx_stats = analyze_block_transactions(transactions)
-                                        
-                                        # Log detailed parsing information
-                                        logger.info(f"Transaction parsing complete for ledger #{ledger_index}")
-                                        logger.debug(f"Transaction types found: {list(tx_stats['transaction_types'].keys())}")
-                                        
-                                        # UPDATED APPROACH: Focus specifically on transactions to ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH
-                                        
-                                        # Retrieve special wallet info - this should be correct from tx_parser.py now
-                                        special_wallet_received = tx_stats.get("special_wallet_received_xrp", False)
-                                        has_special_wallet_memo = tx_stats.get("has_special_wallet_memo", False)
-                                        special_wallet_memos = tx_stats.get("special_wallet_memos", [])
-                                        special_wallet_memo_tx_hash = tx_stats.get("special_wallet_memo_tx_hash", None)
-                                        
-                                        # Log detailed special wallet and memo status
-                                        logger.info(f"🔎 MEMO CHECK: special_wallet_received={special_wallet_received}, "
-                                                    f"has_special_wallet_memo={has_special_wallet_memo}, "
-                                                    f"special_wallet_memos count={len(special_wallet_memos)}")
-                                        
-                                        # Debug memo contents
-                                        if special_wallet_memos and len(special_wallet_memos) > 0:
-                                            for i, memo in enumerate(special_wallet_memos):
-                                                logger.info(f"📝 SPECIAL WALLET MEMO #{i+1}: {memo.get('memo_data', 'empty')} (tx: {memo.get('tx_hash', 'unknown')})")
-                                        
-                                        # Log all regular memos for comparison
-                                        regular_memos = tx_stats.get("transaction_memos", [])
-                                        if regular_memos and len(regular_memos) > 0:
-                                            logger.info(f"📋 Found {len(regular_memos)} regular memos")
-                                            for i, memo in enumerate(regular_memos[:3]):  # Log up to 3 for brevity
-                                                logger.info(f"📋 REGULAR MEMO #{i+1}: {memo.get('memo_data', 'empty')} (tx: {memo.get('tx_hash', 'unknown')})")
-                                        
-                                        # If transaction has memos and was sent to the special wallet ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH
-                                        # Make sure we use ONLY those memos
-                                        if special_wallet_received and special_wallet_memos and len(special_wallet_memos) > 0:
-                                            logger.info(f"🏆🏆🏆 PRIORITY: Found a transaction to THE SPECIAL WALLET ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH with memo")
-                                            logger.info(f"💹 Special wallet transaction hash: {special_wallet_memo_tx_hash}")
-                                            
-                                            # Get the count of regular memos before clearing
-                                            regular_memo_count = len(tx_stats.get("transaction_memos", []))
-                                            
-                                            # Completely clear regular transaction memos
-                                            tx_stats["transaction_memos"] = []
-                                            logger.info(f"🧹 Cleared {regular_memo_count} regular transaction memos")
-                                            
-                                            # Set the flag to ensure frontend recognizes the special wallet memo
-                                            tx_stats["has_special_wallet_memo"] = True
-                                            logger.info(f"🚩 Set has_special_wallet_memo flag to TRUE")
-                                            
-                                            # Debug the special wallet memo content in detail
-                                            if special_wallet_memos[0]:
-                                                memo = special_wallet_memos[0]
-                                                logger.info(f"🔍 SPECIAL WALLET MEMO DETAILS:")
-                                                logger.info(f"   - Content: '{memo.get('memo_data', '')}'")
-                                                logger.info(f"   - Type: '{memo.get('memo_type', '')}'")
-                                                logger.info(f"   - Format: '{memo.get('memo_format', '')}'") 
-                                                logger.info(f"   - Transaction: {memo.get('tx_hash', 'unknown')}")
-                                        
-                                        # Extra logging of what memos will be sent
-                                        logger.info(f"Final memo counts: special={len(special_wallet_memos)}, regular={len(tx_stats.get('transaction_memos', []))}")
-                                        
-                                        # Format transaction data for the frontend
-                                        # Super explicit final memo selection logic - absolutely prioritize special wallet memos
-                                        
-                                        # Initialize empty memo containers
-                                        final_transaction_memos = []
-                                        final_special_wallet_memos = []
-                                        
-                                        # Always check for special wallet memos first - WITH EXTREME VERIFICATION
-                                        if special_wallet_received:
-                                            logger.info(f"✅ VERIFICATION: Special wallet received XRP")
-                                            
-                                            # Explicitly re-check memo existence
-                                            special_wallet_memo_list = tx_stats.get("special_wallet_memos", [])
-                                            if special_wallet_memo_list and len(special_wallet_memo_list) > 0:
-                                                logger.info(f"✅ VERIFICATION: Found {len(special_wallet_memo_list)} special wallet memos")
+                                            # Debug: Print structure of the first transaction to understand format
+                                            if len(transactions) > 0:
+                                                first_tx = transactions[0]
+                                                logger.debug(f"First transaction type: {type(first_tx)}")
+                                                logger.debug(f"First transaction keys: {list(first_tx.keys()) if isinstance(first_tx, dict) else 'Not a dict'}")
+                                                if isinstance(first_tx, dict):
+                                                    # Check if TransactionType exists directly
+                                                    if 'TransactionType' in first_tx:
+                                                        logger.debug(f"Transaction type from key: {first_tx['TransactionType']}")
+                                                    # Try the get_transaction_type function
+                                                    tx_type = get_transaction_type(first_tx)
+                                                    logger.debug(f"Transaction type from function: {tx_type}")
+                                                    # Check common nested locations
+                                                    for location in ['tx', 'transaction', 'meta']:
+                                                        if location in first_tx and isinstance(first_tx[location], dict):
+                                                            logger.debug(f"Contents in '{location}': {list(first_tx[location].keys())}")
                                                 
-                                                # ULTRA-VERIFY EACH MEMO
-                                                verified_memos = []
-                                                for i, memo in enumerate(special_wallet_memo_list):
-                                                    memo_data = memo.get('memo_data', '')
-                                                    tx_hash = memo.get('tx_hash', 'unknown')
+                                                # Print a sample of the transaction to inspect
+                                                tx_sample = json.dumps(first_tx)[:500]
+                                                logger.debug(f"Transaction sample: {tx_sample}...")
+                                            
+                                            # Use the analyze_block_transactions function from tx_parser with error handling
+                                            try:
+                                                tx_stats = analyze_block_transactions(transactions)
+                                                
+                                                # Log detailed parsing information
+                                            except Exception as analyze_error:
+                                                logger.error(f"Error in analyze_block_transactions: {analyze_error}", exc_info=True)
+                                                # Create a fallback tx_stats with empty values to prevent crashes
+                                                tx_stats = {
+                                                    "transaction_count": len(transactions),
+                                                    "transaction_types": {},
+                                                    "currencies": {},
+                                                    "total_xrp_transferred": Decimal(0),
+                                                    "largest_payment": Decimal(0),
+                                                    "total_fees": Decimal(0),
+                                                    "sample_transactions": [],
+                                                    "active_accounts": [],
+                                                    "special_wallet_received_xrp": False,
+                                                    "special_wallet_received_exact_amount": False,
+                                                    "special_wallet_received_cat_amount": False,
+                                                    "has_special_wallet_memo": False,
+                                                    "special_wallet_memos": [],
+                                                    "transaction_memos": [],
+                                                    "special_wallet_memo_tx_hash": None
+                                                }
+                                            logger.info(f"Transaction parsing complete for ledger #{ledger_index}")
+                                            logger.debug(f"Transaction types found: {list(tx_stats['transaction_types'].keys())}")
+                                            
+                                            # UPDATED APPROACH: Focus specifically on transactions to ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH
+                                            
+                                            # Retrieve special wallet info - this should be correct from tx_parser.py now
+                                            special_wallet_received = tx_stats.get("special_wallet_received_xrp", False)
+                                            has_special_wallet_memo = tx_stats.get("has_special_wallet_memo", False)
+                                            special_wallet_memos = tx_stats.get("special_wallet_memos", [])
+                                            special_wallet_memo_tx_hash = tx_stats.get("special_wallet_memo_tx_hash", None)
+                                            
+                                            # Log detailed special wallet and memo status
+                                            logger.info(f"🔎 MEMO CHECK: special_wallet_received={special_wallet_received}, "
+                                                        f"has_special_wallet_memo={has_special_wallet_memo}, "
+                                                        f"special_wallet_memos count={len(special_wallet_memos)}")
+                                            
+                                            # Debug memo contents
+                                            if special_wallet_memos and len(special_wallet_memos) > 0:
+                                                for i, memo in enumerate(special_wallet_memos):
+                                                    logger.info(f"📝 SPECIAL WALLET MEMO #{i+1}: {memo.get('memo_data', 'empty')} (tx: {memo.get('tx_hash', 'unknown')})")
+                                            
+                                            # Log all regular memos for comparison
+                                            regular_memos = tx_stats.get("transaction_memos", [])
+                                            if regular_memos and len(regular_memos) > 0:
+                                                logger.info(f"📋 Found {len(regular_memos)} regular memos")
+                                                for i, memo in enumerate(regular_memos[:3]):  # Log up to 3 for brevity
+                                                    logger.info(f"📋 REGULAR MEMO #{i+1}: {memo.get('memo_data', 'empty')} (tx: {memo.get('tx_hash', 'unknown')})")
+                                            
+                                            # If transaction has memos and was sent to the special wallet ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH
+                                            # Make sure we use ONLY those memos
+                                            if special_wallet_received and special_wallet_memos and len(special_wallet_memos) > 0:
+                                                logger.info(f"🏆🏆🏆 PRIORITY: Found a transaction to THE SPECIAL WALLET ra22VZUKQbznAAQooPYffPPXs4MUFwqVeH with memo")
+                                                logger.info(f"💹 Special wallet transaction hash: {special_wallet_memo_tx_hash}")
+                                                
+                                                # Get the count of regular memos before clearing
+                                                regular_memo_count = len(tx_stats.get("transaction_memos", []))
+                                                
+                                                # Completely clear regular transaction memos
+                                                tx_stats["transaction_memos"] = []
+                                                logger.info(f"🧹 Cleared {regular_memo_count} regular transaction memos")
+                                                
+                                                # Set the flag to ensure frontend recognizes the special wallet memo
+                                                tx_stats["has_special_wallet_memo"] = True
+                                                logger.info(f"🚩 Set has_special_wallet_memo flag to TRUE")
+                                                
+                                                # Debug the special wallet memo content in detail
+                                                if special_wallet_memos[0]:
+                                                    memo = special_wallet_memos[0]
+                                                    logger.info(f"🔍 SPECIAL WALLET MEMO DETAILS:")
+                                                    logger.info(f"   - Content: '{memo.get('memo_data', '')}'")
+                                                    logger.info(f"   - Type: '{memo.get('memo_type', '')}'")
+                                                    logger.info(f"   - Format: '{memo.get('memo_format', '')}'") 
+                                                    logger.info(f"   - Transaction: {memo.get('tx_hash', 'unknown')}")
+                                            
+                                            # Extra logging of what memos will be sent
+                                            logger.info(f"Final memo counts: special={len(special_wallet_memos)}, regular={len(tx_stats.get('transaction_memos', []))}")
+                                            
+                                            # Format transaction data for the frontend
+                                            # Super explicit final memo selection logic - absolutely prioritize special wallet memos
+                                            
+                                            # Initialize empty memo containers
+                                            final_transaction_memos = []
+                                            final_special_wallet_memos = []
+                                            
+                                            # Always check for special wallet memos first - WITH EXTREME VERIFICATION
+                                            if special_wallet_received:
+                                                logger.info(f"✅ VERIFICATION: Special wallet received XRP")
+                                                
+                                                # Explicitly re-check memo existence
+                                                special_wallet_memo_list = tx_stats.get("special_wallet_memos", [])
+                                                if special_wallet_memo_list and len(special_wallet_memo_list) > 0:
+                                                    logger.info(f"✅ VERIFICATION: Found {len(special_wallet_memo_list)} special wallet memos")
                                                     
-                                                    if isinstance(memo_data, str) and memo_data.strip():
-                                                        logger.info(f"✅ VERIFIED memo #{i+1}: '{memo_data}' from tx {tx_hash}")
-                                                        verified_memos.append(memo)
+                                                    # ULTRA-VERIFY EACH MEMO
+                                                    verified_memos = []
+                                                    for i, memo in enumerate(special_wallet_memo_list):
+                                                        memo_data = memo.get('memo_data', '')
+                                                        tx_hash = memo.get('tx_hash', 'unknown')
+                                                        
+                                                        if isinstance(memo_data, str) and memo_data.strip():
+                                                            logger.info(f"✅ VERIFIED memo #{i+1}: '{memo_data}' from tx {tx_hash}")
+                                                            verified_memos.append(memo)
+                                                        else:
+                                                            logger.info(f"❌ INVALID memo #{i+1} from tx {tx_hash} - not adding to verified list")
+                                                    
+                                                    # Use only verified memos
+                                                    if verified_memos:
+                                                        final_special_wallet_memos = verified_memos
+                                                        logger.info(f"🏆 SPECIAL WALLET MEMO SELECTED: '{final_special_wallet_memos[0].get('memo_data')}' from tx {final_special_wallet_memos[0].get('tx_hash')}")
+                                                        logger.info(f"💯 FINAL DECISION: Using ONLY special wallet memos ({len(final_special_wallet_memos)})")
                                                     else:
-                                                        logger.info(f"❌ INVALID memo #{i+1} from tx {tx_hash} - not adding to verified list")
-                                                
-                                                # Use only verified memos
-                                                if verified_memos:
-                                                    final_special_wallet_memos = verified_memos
-                                                    logger.info(f"🏆 SPECIAL WALLET MEMO SELECTED: '{final_special_wallet_memos[0].get('memo_data')}' from tx {final_special_wallet_memos[0].get('tx_hash')}")
-                                                    logger.info(f"💯 FINAL DECISION: Using ONLY special wallet memos ({len(final_special_wallet_memos)})")
+                                                        logger.info(f"⚠️ All special wallet memos failed verification - not using any")
                                                 else:
-                                                    logger.info(f"⚠️ All special wallet memos failed verification - not using any")
-                                            else:
-                                                logger.info(f"⚠️ Special wallet received XRP but no valid memos were found")
-                                        
-                                        # Only use regular transaction memos if there are NO special wallet memos
-                                        if not final_special_wallet_memos and tx_stats.get("transaction_memos"):
-                                            regular_memo_list = tx_stats.get("transaction_memos", [])
-                                            if regular_memo_list and len(regular_memo_list) > 0:
-                                                final_transaction_memos = regular_memo_list
-                                                logger.info(f"ℹ️ FALLBACK: No special wallet memos, using {len(final_transaction_memos)} regular transaction memos")
-                                                if final_transaction_memos:
-                                                    logger.info(f"ℹ️ First regular memo: '{final_transaction_memos[0].get('memo_data', '')}' from tx {final_transaction_memos[0].get('tx_hash', 'unknown')}")
-                                        
-                                        # Log final memo counts
-                                        logger.info(f"📊 FINAL MEMO COUNTS: special={len(final_special_wallet_memos)}, regular={len(final_transaction_memos)}")
-                                        
-                                        if not final_special_wallet_memos and not final_transaction_memos:
-                                            logger.info("🚫 NO MEMOS: Neither special wallet nor transaction memos found")  
-                                        # Create the final data structure with the chosen memos
-                                        # Final data structure with carefully chosen memos
-                                        tx_details = {
-                                            "transaction_types": tx_stats["transaction_types"],
-                                            "currencies": tx_stats.get("currencies", {}),
-                                            "largest_payment": float(tx_stats.get("largest_payment", 0)),
-                                            "total_xrp_transferred": float(tx_stats.get("total_xrp_transferred", 0)),
-                                            "total_fees": float(tx_stats.get("total_fees", 0)),
-                                            "significant_accounts": tx_stats.get("active_accounts", [])[:5] if "active_accounts" in tx_stats else [],
-                                            "detailed_transactions": tx_stats.get("sample_transactions", [])[:10] if "sample_transactions" in tx_stats else [],
+                                                    logger.info(f"⚠️ Special wallet received XRP but no valid memos were found")
                                             
-                                            # Special wallet flags
-                                            "special_wallet_received_xrp": special_wallet_received,
-                                            "special_wallet_received_exact_amount": tx_stats.get("special_wallet_received_exact_amount", False),
-                                            "special_wallet_received_cat_amount": tx_stats.get("special_wallet_received_cat_amount", False),
+                                            # Only use regular transaction memos if there are NO special wallet memos
+                                            if not final_special_wallet_memos and tx_stats.get("transaction_memos"):
+                                                regular_memo_list = tx_stats.get("transaction_memos", [])
+                                                if regular_memo_list and len(regular_memo_list) > 0:
+                                                    final_transaction_memos = regular_memo_list
+                                                    logger.info(f"ℹ️ FALLBACK: No special wallet memos, using {len(final_transaction_memos)} regular transaction memos")
+                                                    if final_transaction_memos:
+                                                        logger.info(f"ℹ️ First regular memo: '{final_transaction_memos[0].get('memo_data', '')}' from tx {final_transaction_memos[0].get('tx_hash', 'unknown')}")
                                             
-                                            # Memo data - CAREFULLY segregated
-                                            "transaction_memos": final_transaction_memos,  # Regular transaction memos
-                                            "special_wallet_memos": final_special_wallet_memos,  # Special wallet memos
-                                            "has_special_wallet_memo": len(final_special_wallet_memos) > 0  # Set this based on actual memo presence
-                                        }
-                                        
-                                        # Sanity check - should never have both kinds of memos
-                                        if len(final_transaction_memos) > 0 and len(final_special_wallet_memos) > 0:
-                                            logger.error("⛔ ERROR: Both memo types are populated! This should never happen!")
-                                            logger.error(f"⛔ CONFLICT: {len(final_special_wallet_memos)} special wallet memos AND {len(final_transaction_memos)} regular memos")
+                                            # Log final memo counts
+                                            logger.info(f"📊 FINAL MEMO COUNTS: special={len(final_special_wallet_memos)}, regular={len(final_transaction_memos)}")
                                             
-                                            # Log the conflicting memos
-                                            for i, memo in enumerate(final_special_wallet_memos):
-                                                logger.error(f"⛔ Special wallet memo #{i+1}: '{memo.get('memo_data', '')}' from tx {memo.get('tx_hash', 'unknown')}")
+                                            if not final_special_wallet_memos and not final_transaction_memos:
+                                                logger.info("🚫 NO MEMOS: Neither special wallet nor transaction memos found")  
+                                            # Create the final data structure with the chosen memos
+                                            # Final data structure with carefully chosen memos
+                                            tx_details = {
+                                                "transaction_types": tx_stats["transaction_types"],
+                                                "currencies": tx_stats.get("currencies", {}),
+                                                "largest_payment": float(tx_stats.get("largest_payment", 0)),
+                                                "total_xrp_transferred": float(tx_stats.get("total_xrp_transferred", 0)),
+                                                "total_fees": float(tx_stats.get("total_fees", 0)),
+                                                "significant_accounts": tx_stats.get("active_accounts", [])[:5] if "active_accounts" in tx_stats else [],
+                                                "detailed_transactions": tx_stats.get("sample_transactions", [])[:10] if "sample_transactions" in tx_stats else [],
+                                                
+                                                # Special wallet flags
+                                                "special_wallet_received_xrp": special_wallet_received,
+                                                "special_wallet_received_exact_amount": tx_stats.get("special_wallet_received_exact_amount", False),
+                                                "special_wallet_received_cat_amount": tx_stats.get("special_wallet_received_cat_amount", False),
+                                                
+                                                # Memo data - CAREFULLY segregated
+                                                "transaction_memos": final_transaction_memos,  # Regular transaction memos
+                                                "special_wallet_memos": final_special_wallet_memos,  # Special wallet memos
+                                                "has_special_wallet_memo": len(final_special_wallet_memos) > 0  # Set this based on actual memo presence
+                                            }
                                             
-                                            for i, memo in enumerate(final_transaction_memos[:3]):  # Log up to 3
-                                                logger.error(f"⛔ Regular memo #{i+1}: '{memo.get('memo_data', '')}' from tx {memo.get('tx_hash', 'unknown')}")
+                                            # Sanity check - should never have both kinds of memos
+                                            if len(final_transaction_memos) > 0 and len(final_special_wallet_memos) > 0:
+                                                logger.error("⛔ ERROR: Both memo types are populated! This should never happen!")
+                                                logger.error(f"⛔ CONFLICT: {len(final_special_wallet_memos)} special wallet memos AND {len(final_transaction_memos)} regular memos")
+                                                
+                                                # Log the conflicting memos
+                                                for i, memo in enumerate(final_special_wallet_memos):
+                                                    logger.error(f"⛔ Special wallet memo #{i+1}: '{memo.get('memo_data', '')}' from tx {memo.get('tx_hash', 'unknown')}")
+                                                
+                                                for i, memo in enumerate(final_transaction_memos[:3]):  # Log up to 3
+                                                    logger.error(f"⛔ Regular memo #{i+1}: '{memo.get('memo_data', '')}' from tx {memo.get('tx_hash', 'unknown')}")
+                                                
+                                                # Force prioritize special wallet memos
+                                                tx_details["transaction_memos"] = []
+                                                logger.error("⛔ RESOLUTION: Cleared transaction_memos to prioritize special wallet memos")
                                             
-                                            # Force prioritize special wallet memos
-                                            tx_details["transaction_memos"] = []
-                                            logger.error("⛔ RESOLUTION: Cleared transaction_memos to prioritize special wallet memos")
-                                        
-                                        # Log if special wallet received XRP
-                                        if tx_stats.get("special_wallet_received_xrp", False):
-                                            logger.info(f"SPECIAL WALLET RECEIVED XRP IN LEDGER #{ledger_index}!")
-                                        
-                                        # Log if special wallet received exactly 0.00101 XRP
-                                        if tx_stats.get("special_wallet_received_exact_amount", False):
-                                            logger.info(f"SPECIAL WALLET RECEIVED EXACTLY 0.00101 XRP IN LEDGER #{ledger_index}!")
-                                        
-                                        # Log if special wallet received exactly 0.0011 XRP (cat animation)
-                                        if tx_stats.get("special_wallet_received_cat_amount", False):
-                                            logger.info(f"SPECIAL WALLET RECEIVED EXACTLY 0.0011 XRP IN LEDGER #{ledger_index}! - SPINNING CAT ACTIVATED!")
-                                        
-                                        # Log memos based on priority
-                                        if has_special_wallet_memo and special_wallet_memos:
-                                            # Log only special wallet memos when they exist
-                                            logger.info(f"Found {len(special_wallet_memos)} SPECIAL WALLET memos in ledger #{ledger_index}")
-                                            for memo in special_wallet_memos:
-                                                logger.info(f"SPECIAL WALLET MEMO in transaction {memo.get('tx_hash', '')[:10]}: {memo.get('memo_data', '')}")
-                                        elif tx_stats.get("transaction_memos", []):
-                                            # Only log regular memos if no special wallet memos exist
-                                            logger.info(f"Found {len(tx_stats.get('transaction_memos', []))} regular memos in ledger #{ledger_index}")
-                                            for memo in tx_stats.get("transaction_memos", []):
-                                                logger.info(f"Regular memo in transaction {memo.get('tx_hash', '')[:10]}: {memo.get('memo_data', '')}")
-                                        
-                                        # Log summary of analyzed data
-                                        logger.info(f"Analyzed {len(transactions)} transactions in ledger #{ledger_index}: {len(tx_stats.get('transaction_types', {}))} types, {tx_stats.get('total_xrp_transferred', 0):.2f} XRP transferred")
-                                        if tx_stats.get("largest_payment", 0) > 0:
-                                            logger.info(f"Largest payment in ledger: {tx_stats.get('largest_payment', 0):.2f} XRP")
-                                    else:
-                                        logger.warning(f"No transactions returned for ledger #{ledger_index} despite txn_count={txn_count}")
-                                except Exception as tx_error:
-                                    logger.error(f"Error processing transactions for ledger #{ledger_index}: {tx_error}", exc_info=True)
-                        
-                        # Add transaction details to ledger info
-                        ledger_info["tx_details"] = tx_details
-                        
-                        # Send to all connected clients
-                        socketio.emit('new_block', ledger_info)
-                        logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
-                
+                                            # Log if special wallet received XRP
+                                            if tx_stats.get("special_wallet_received_xrp", False):
+                                                logger.info(f"SPECIAL WALLET RECEIVED XRP IN LEDGER #{ledger_index}!")
+                                            
+                                            # Log if special wallet received exactly 0.00101 XRP
+                                            if tx_stats.get("special_wallet_received_exact_amount", False):
+                                                logger.info(f"SPECIAL WALLET RECEIVED EXACTLY 0.00101 XRP IN LEDGER #{ledger_index}!")
+                                            
+                                            # Log if special wallet received exactly 0.0011 XRP (cat animation)
+                                            if tx_stats.get("special_wallet_received_cat_amount", False):
+                                                logger.info(f"SPECIAL WALLET RECEIVED EXACTLY 0.0011 XRP IN LEDGER #{ledger_index}! - SPINNING CAT ACTIVATED!")
+                                            
+                                            # Log memos based on priority
+                                            if has_special_wallet_memo and special_wallet_memos:
+                                                # Log only special wallet memos when they exist
+                                                logger.info(f"Found {len(special_wallet_memos)} SPECIAL WALLET memos in ledger #{ledger_index}")
+                                                for memo in special_wallet_memos:
+                                                    logger.info(f"SPECIAL WALLET MEMO in transaction {memo.get('tx_hash', '')[:10]}: {memo.get('memo_data', '')}")
+                                            elif tx_stats.get("transaction_memos", []):
+                                                # Only log regular memos if no special wallet memos exist
+                                                logger.info(f"Found {len(tx_stats.get('transaction_memos', []))} regular memos in ledger #{ledger_index}")
+                                                for memo in tx_stats.get("transaction_memos", []):
+                                                    logger.info(f"Regular memo in transaction {memo.get('tx_hash', '')[:10]}: {memo.get('memo_data', '')}")
+                                            
+                                            # Log summary of analyzed data
+                                            logger.info(f"Analyzed {len(transactions)} transactions in ledger #{ledger_index}: {len(tx_stats.get('transaction_types', {}))} types, {tx_stats.get('total_xrp_transferred', 0):.2f} XRP transferred")
+                                            if tx_stats.get("largest_payment", 0) > 0:
+                                                logger.info(f"Largest payment in ledger: {tx_stats.get('largest_payment', 0):.2f} XRP")
+                                        else:
+                                            logger.warning(f"No transactions returned for ledger #{ledger_index} despite txn_count={txn_count}")
+                                    except Exception as tx_error:
+                                        logger.error(f"Error processing transactions for ledger #{ledger_index}: {tx_error}", exc_info=True)
+                            
+                            # Add transaction details to ledger info
+                            ledger_info["tx_details"] = tx_details
+                            
+                            # Send to all connected clients
+                            socketio.emit('new_block', ledger_info)
+                            logger.debug(f"Emitted ledger #{ledger_index} data to connected clients")
+                    
+                    except Exception as message_error:
+                        logger.error(f"Error processing ledger message: {message_error}", exc_info=True)
         except Exception as e:
             # Handle WebSocket connection errors
             logger.error(f"Error in XRPL listener: {str(e)}", exc_info=True)
