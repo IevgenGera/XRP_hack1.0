@@ -577,9 +577,7 @@ def analyze_block_transactions(transactions):
                 continue  # Skip this transaction but continue processing others
             
             # Also check raw transaction in case direct parsing missed it
-        except Exception as tx_error:
-            print(f"[TX_PARSER] Critical error processing transaction {i+1}/{len(transactions)}: {tx_error}")
-            continue  # Skip this transaction but continue with others
+        
             if isinstance(tx, dict):
                 # Check tx_json if it exists
                 tx_data = tx.get('tx_json', tx)  # Use tx_json if available, otherwise use tx
@@ -694,65 +692,66 @@ def analyze_block_transactions(transactions):
                             print(f"[TX_PARSER] Special wallet payment detected via meta data")
                     except Exception as meta_error:
                         print(f"[TX_PARSER] Error processing meta data: {meta_error}")
-        except Exception as e:
-            print(f"[TX_PARSER] Error parsing transaction: {e}")
-            continue
         
-        # Add to sample transactions list
-        if len(stats["sample_transactions"]) < 10:
-            stats["sample_transactions"].append(tx_info)
-        
-        # Track accounts
-        if "sender" in tx_info:
-            sender = tx_info["sender"]
-            account_counts[sender] = account_counts.get(sender, 0) + 1
-        if "receiver" in tx_info:
-            receiver = tx_info["receiver"]
-            account_counts[receiver] = account_counts.get(receiver, 0) + 1
-        
-        # Count transaction types
-        tx_type = tx_info.get("type", "Unknown")
-        stats["transaction_types"][tx_type] = stats["transaction_types"].get(tx_type, 0) + 1
-        print(f"[TX_PARSER] Counted transaction type: {tx_type}")
-        
-        # Track fees - ensure both are Decimal type
-        if "fee_xrp" in tx_info:
-            # Convert fee to Decimal if it's not already
-            if not isinstance(tx_info["fee_xrp"], Decimal):
-                fee_xrp = Decimal(str(tx_info["fee_xrp"]))
-            else:
-                fee_xrp = tx_info["fee_xrp"]
-            stats["total_fees"] += fee_xrp
-            print(f"[TX_PARSER] Added fee: {fee_xrp} XRP, total now: {stats['total_fees']} XRP")
-        
-        # Track amounts for payments
-        if tx_type == "Payment" and "amount" in tx_info:
-            amount = tx_info["amount"]
-            currency = tx_info.get("currency", "Unknown")
+            # Add to sample transactions list
+            if len(stats["sample_transactions"]) < 10:
+                stats["sample_transactions"].append(tx_info)
             
-            # Count currencies
-            if currency not in stats["currencies"]:
-                stats["currencies"][currency] = 0
-            stats["currencies"][currency] += 1
+            # Track accounts
+            if "sender" in tx_info:
+                sender = tx_info["sender"]
+                account_counts[sender] = account_counts.get(sender, 0) + 1
+            if "receiver" in tx_info:
+                receiver = tx_info["receiver"]
+                account_counts[receiver] = account_counts.get(receiver, 0) + 1
             
-            # Track XRP amounts
-            if currency == "XRP" and isinstance(amount, (int, float, Decimal, str)):
-                # Convert to Decimal for precision
-                if not isinstance(amount, Decimal):
-                    try:
-                        amount = Decimal(str(amount))
-                    except (ValueError, TypeError):
-                        print(f"[TX_PARSER] Warning: Could not convert amount to Decimal: {amount}")
-                        continue
-                        
-                stats["total_xrp_transferred"] += amount
-                print(f"[TX_PARSER] Added {amount} XRP to total transferred")
+            # Count transaction types
+            tx_type = tx_info.get("type", "Unknown")
+            stats["transaction_types"][tx_type] = stats["transaction_types"].get(tx_type, 0) + 1
+            print(f"[TX_PARSER] Counted transaction type: {tx_type}")
+            
+            # Track fees - ensure both are Decimal type
+            if "fee_xrp" in tx_info:
+                # Convert fee to Decimal if it's not already
+                if not isinstance(tx_info["fee_xrp"], Decimal):
+                    fee_xrp = Decimal(str(tx_info["fee_xrp"]))
+                else:
+                    fee_xrp = tx_info["fee_xrp"]
+                stats["total_fees"] += fee_xrp
+                print(f"[TX_PARSER] Added fee: {fee_xrp} XRP, total now: {stats['total_fees']} XRP")
+            
+            # Track amounts for payments
+            if tx_type == "Payment" and "amount" in tx_info:
+                amount = tx_info["amount"]
+                currency = tx_info.get("currency", "Unknown")
                 
-                # Track largest payment
-                if amount > stats["largest_payment"]:
-                    stats["largest_payment"] = amount
-                    print(f"[TX_PARSER] New largest payment: {amount} XRP")
-    
+                # Count currencies
+                if currency not in stats["currencies"]:
+                    stats["currencies"][currency] = 0
+                stats["currencies"][currency] += 1
+                
+                # Track XRP amounts
+                if currency == "XRP" and isinstance(amount, (int, float, Decimal, str)):
+                    # Convert to Decimal for precision
+                    if not isinstance(amount, Decimal):
+                        try:
+                            amount = Decimal(str(amount))
+                        except (ValueError, TypeError):
+                            print(f"[TX_PARSER] Warning: Could not convert amount to Decimal: {amount}")
+                            continue
+                            
+                    stats["total_xrp_transferred"] += amount
+                    print(f"[TX_PARSER] Added {amount} XRP to total transferred")
+                    
+                    # Track largest payment
+                    if amount > stats["largest_payment"]:
+                        stats["largest_payment"] = amount
+                        print(f"[TX_PARSER] New largest payment: {amount} XRP")
+        
+        except Exception as tx_error:
+            print(f"[TX_PARSER] Critical error processing transaction {i+1}/{len(transactions)}: {tx_error}")
+            continue  # Skip this transaction but continue with others
+        
     return stats
 
 def format_block_stats(stats):
